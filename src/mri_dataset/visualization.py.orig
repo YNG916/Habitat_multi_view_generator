@@ -19,8 +19,8 @@ def depth_visualization(depth: np.ndarray, max_depth_m: float = 10.0) -> Image.I
 
 def contact_sheet(bev: Image.Image, robot_images: Iterable[Image.Image], title: str = "") -> Image.Image:
     robots = [image.convert("RGB") for image in robot_images]
-    thumb_w = 1024
-    thumb_h = 1024
+    thumb_w = 512
+    thumb_h = 512
     bev_thumb = bev.convert("RGB")
     bev_thumb.thumbnail((thumb_w, thumb_h))
     robots = [image.resize((thumb_w, thumb_h)) for image in robots]

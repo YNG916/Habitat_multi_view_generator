@@ -4,12 +4,10 @@ This repository contains a Habitat-Sim 0.3.3 pipeline whose source of truth is a
 
 The frozen geometry convention is right-handed Habitat world coordinates (`+Y` up, ground `X-Z`, zero-yaw forward `-Z`). BEV right is `+X` and BEV up is `-Z`. Metadata stores xyzw quaternions, Habitat and OpenCV camera transforms, calibrated pinhole intrinsics, actual BEV pixel scale, and relative file paths.
 
-The default quality preset renders every robot view at `2048 x 2048` and targets
-`0.00625 m/pixel` for BEV (the final BEV dimensions follow each scene's metric
-bounds). Robot proxies are lightweight 32-sided robot-vacuum meshes with a
-layered shell, rubber bumper, drive wheels, side brush, lidar turret, status
-button, and front/rear sensor windows. Regenerate these self-contained assets
-with `python scripts/generate_robot_proxy_meshes.py`.
+The default quality preset renders every robot view at `1024 x 1024` and targets
+`0.025 m/pixel` for BEV (the final BEV dimensions follow each scene's metric
+bounds). Robot proxies are low-profile colored disc vacuum robots with a dark
+bumper, a small lidar turret, and a visible forward marker.
 
 Run from this directory with the existing `habitat` environment:
 

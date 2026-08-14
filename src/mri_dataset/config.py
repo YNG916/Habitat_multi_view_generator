@@ -17,8 +17,8 @@ class CollectorConfig:
     output_root: str = "outputs/mri_dataset"
     gpu_device_id: int = 0
     num_robots: int = 3
-    width: int = 512
-    height: int = 512
+    width: int = 2048
+    height: int = 2048
     hfov_deg: float = 90.0
     near: float = 0.05
     far: float = 20.0
@@ -30,7 +30,7 @@ class CollectorConfig:
     floor_tolerance_m: float = 0.25
     heading_mode: str = "mixed"
     shared_heading_jitter_deg: float = 20.0
-    bev_meters_per_pixel: float = 0.05
+    bev_meters_per_pixel: float = 0.00625
     bev_camera_height_m: float = 2.2
     bev_near: float = 0.02
     bev_far: float = 10.0
