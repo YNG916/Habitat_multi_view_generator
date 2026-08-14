@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 import math
+import tempfile
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -43,7 +45,12 @@ class HabitatBackend:
         self.mapping = BevMapping.from_bounds(
             self.scene_bounds[0], self.scene_bounds[1], config.bev_meters_per_pixel
         )
-        self.sim = self._create_simulator()
+        self._runtime_dataset_config_path = self._filtered_dataset_config()
+        try:
+            self.sim = self._create_simulator()
+        except Exception:
+            self._remove_runtime_dataset_config()
+            raise
         if not self.sim.pathfinder.load_nav_mesh(str(self.navmesh_path)):
             self.close()
             raise RuntimeError(f"Habitat loaded {scene_id} but explicit navmesh load failed")
@@ -63,6 +70,39 @@ class HabitatBackend:
         spec.near = float(near)
         spec.far = float(far)
         return spec
+
+    def _filtered_dataset_config(self) -> Path:
+        """Drop references to optional local resources that are not installed."""
+        source = self.config.dataset_config_path
+        with source.open("r", encoding="utf-8") as handle:
+            data = json.load(handle)
+        base = source.parent
+        navmeshes = data.get("navmesh_instances", {})
+        data["navmesh_instances"] = {
+            key: value
+            for key, value in navmeshes.items()
+            if (base / value).exists()
+        }
+        urdf_paths = data.get("articulated_objects", {}).get("paths", {}).get(".urdf", [])
+        data["articulated_objects"]["paths"][".urdf"] = [
+            value for value in urdf_paths if "hab_fetch_1.0" not in value
+        ]
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            suffix=".scene_dataset_config.json",
+            prefix=".mri-",
+            dir=base,
+            encoding="utf-8",
+            delete=False,
+        ) as handle:
+            json.dump(data, handle)
+            return Path(handle.name)
+
+    def _remove_runtime_dataset_config(self) -> None:
+        path = getattr(self, "_runtime_dataset_config_path", None)
+        if path is not None:
+            path.unlink(missing_ok=True)
+            self._runtime_dataset_config_path = None
 
     def _create_simulator(self):
         hs = self.habitat_sim
@@ -112,7 +152,7 @@ class HabitatBackend:
         agent_configs.append(bev_agent)
 
         simulator = hs.SimulatorConfiguration()
-        simulator.scene_dataset_config_file = str(self.config.dataset_config_path)
+        simulator.scene_dataset_config_file = str(self._runtime_dataset_config_path)
         simulator.scene_id = self.scene_id
         simulator.enable_physics = True
         simulator.gpu_device_id = int(self.config.gpu_device_id)
@@ -354,6 +394,7 @@ class HabitatBackend:
         if getattr(self, "sim", None) is not None:
             self.sim.close()
             self.sim = None
+        self._remove_runtime_dataset_config()
 
     def __enter__(self):
         return self

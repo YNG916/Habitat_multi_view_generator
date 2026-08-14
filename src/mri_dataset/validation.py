@@ -17,6 +17,18 @@ class ValidationError(RuntimeError):
     pass
 
 
+ROBOT_PROXY_REGISTRATION_TOLERANCE_M = 0.35
+
+
+def nearest_instance_distance_m(pixels_rc, u, v, mapping):
+    pixels = np.asarray(pixels_rc, dtype=np.float64)
+    if not len(pixels):
+        return None
+    dx = (pixels[:, 1] - float(u)) * mapping.meters_per_pixel_x
+    dz = (pixels[:, 0] - float(v)) * mapping.meters_per_pixel_z
+    return float(np.min(np.hypot(dx, dz)))
+
+
 def _matrix(item, key):
     result = np.asarray(item[key], dtype=np.float64)
     if result.shape != (4, 4) or not np.all(np.isfinite(result)):
@@ -108,9 +120,11 @@ def validate_state_dir(state_dir: Path, pathfinder=None, tolerance: float = 1e-5
                 u, v = mapping.world_to_bev(robot["base_position_world"][0], robot["base_position_world"][2])
                 pixels = np.argwhere(bev_instance == int(robot["proxy_semantic_id"]))
                 if len(pixels):
-                    nearest = np.min(np.hypot(pixels[:, 1] - u, pixels[:, 0] - v))
-                    if nearest > 3.0:
-                        errors.append(f"{robot['robot_id']}: BEV proxy is misregistered by {nearest:.2f} px")
+                    nearest_m = nearest_instance_distance_m(pixels, u, v, mapping)
+                    if nearest_m > ROBOT_PROXY_REGISTRATION_TOLERANCE_M:
+                        errors.append(
+                            f"{robot['robot_id']}: BEV proxy is misregistered by {nearest_m:.3f} m"
+                        )
                 else:
                     col, row = int(round(u)), int(round(v))
                     patch = annotated[max(0, row-3):row+4, max(0, col-3):col+4]

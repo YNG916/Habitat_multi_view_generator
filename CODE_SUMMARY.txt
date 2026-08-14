@@ -1,0 +1,1321 @@
+Multi-Robot World-Imagination Dataset Generator
+完整代码总结
+============================================================
+
+项目位置
+--------
+/cvhci/temp/yyang/Multi_view_world_model/habitat
+
+本文档用途
+----------
+本文档按文件总结当前仓库中的全部实现，包括配置、核心数据结构、坐标系、
+Habitat-Sim 后端、采样、BEV、序列化、Level-2 干预、验证、可视化、
+命令行脚本、机器人 mesh、测试和数据输出格式。
+
+它是代码导览，不是源码的逐行复制。实际实现以 src/、scripts/、tests/ 和
+configs/ 中的文件为准。
+
+
+一、项目目标
+============================================================
+
+该项目使用 Habitat-Sim 0.3.3 和 ReplicaCAD 生成多机器人世界状态数据。
+
+每个 Level-1 状态包含：
+1. 三个机器人各自的 RGB 图像。
+2. 三个机器人各自的深度图。
+3. 三个机器人各自的实例分割图。
+4. 全局正交 BEV RGB。
+5. BEV 实例分割。
+6. BEV 高度图。
+7. BEV 可导航 occupancy。
+8. 机器人位姿、相机内外参和坐标变换。
+9. 可控物体状态、AABB 和可见性。
+10. 多机器人视野重叠难度。
+11. RGB-D 和 BEV 几何验证记录。
+12. 人工检查 contact sheet。
+
+Level-2 数据在 Level-1 WorldState 上施加精确干预，再使用同一个 Habitat
+后端重新渲染，生成 before/after 配对、结构化干预、自然语言指令和
+可见性变化。
+
+
+二、仓库结构
+============================================================
+
+README.md
+    项目说明和常用命令。
+
+CODE_SUMMARY.txt
+    当前完整代码导览。
+
+.gitignore
+    忽略 outputs/、本地 data/、Python 缓存、测试缓存和补丁备份。
+    assets/ 不再忽略，因为机器人 OBJ/MTL 是运行必需资源。
+
+configs/
+    collector.json
+        默认数据生成配置。
+
+assets/robot_proxies/
+    robot_red.obj / robot_red.mtl / robot_red.object_config.json
+    robot_green.obj / robot_green.mtl / robot_green.object_config.json
+    robot_blue.obj / robot_blue.mtl / robot_blue.object_config.json
+        三套轻量写实扫地机器人 proxy。
+
+data/
+    replica_cad
+        指向本地 ReplicaCAD 数据的链接。
+    versioned_data/replica_cad_dataset
+        本地场景、物体模板、场景配置和 navmesh。
+        该目录是运行数据，不进入主仓库版本管理。
+
+src/mri_dataset/
+    __init__.py
+    config.py
+    coordinates.py
+    world_state.py
+    sampling.py
+    objects.py
+    bev.py
+    habitat_backend.py
+    serialization.py
+    state_io.py
+    collector.py
+    interventions.py
+    level2.py
+    validation.py
+    visualization.py
+
+scripts/
+    _bootstrap.py
+    collect_level1.py
+    collect_level2.py
+    debug_world_state.py
+    inspect_scene.py
+    list_object_templates.py
+    make_contact_sheet.py
+    validate_dataset.py
+    generate_robot_proxy_meshes.py
+
+tests/
+    test_coordinates.py
+    test_transforms.py
+    test_bev_mapping.py
+    test_interventions.py
+    test_object_interventions.py
+    test_validation.py
+
+
+三、默认配置
+============================================================
+
+文件：configs/collector.json
+对应 Python 类：src/mri_dataset/config.py::CollectorConfig
+
+当前默认关键参数：
+
+场景：
+    scene_dataset_config =
+        data/replica_cad/replicaCAD.scene_dataset_config.json
+    scenes = ["apt_1"]
+    navmesh_root = data/replica_cad/navmeshes
+    output_root = outputs/mri_dataset
+    gpu_device_id = 0
+
+机器人：
+    num_robots = 3
+    width = 2048
+    height = 2048
+    hfov_deg = 90
+    near = 0.05 m
+    far = 20 m
+
+相机高度：
+    camera_height_min_m = 0.4
+    camera_height_max_m = 1.4
+
+注意：
+    当前扫地机器人 mesh 高度约 0.18 m，但相机可位于 0.4–1.4 m。
+    若要求物理外观完全一致，应增加伸缩相机杆，或固定相机高度。
+    当前实现中的 Habitat agent 是不可见相机架，扫地机器人 proxy 是
+    其他相机实际看到的机器人实体。
+
+机器人采样：
+    min_obstacle_distance_m = 0.55
+    min_inter_robot_distance_m = 0.9
+    local_sampling_radius_m = 3.5
+    floor_tolerance_m = 0.25
+    heading_mode = mixed
+    shared_heading_jitter_deg = 20
+
+BEV：
+    bev_meters_per_pixel = 0.00625
+    bev_camera_height_m = 2.2
+    bev_near = 0.02
+    bev_far = 10
+
+在 apt_1 中，默认 BEV 实际约为 1163 x 2083，实际米/像素值会根据
+场景边界和整数分辨率重新计算并写入 state.json。
+
+实例和 proxy：
+    enable_instance = true
+    enable_robot_proxies = true
+
+机器人 semantic ID：
+    robot_01 = 1001
+    robot_02 = 1002
+    robot_03 = 1003
+
+受控物体白名单：
+    cup  -> frl_apartment_cup_01.object_config.json
+    bowl -> frl_apartment_bowl_01.object_config.json
+    book -> frl_apartment_book_01.object_config.json
+
+受控物体：
+    controlled_objects_per_state = 1
+    controlled_object_min_separation_m = 0.65
+    object_001 semantic ID = 2001
+
+随机性：
+    random_seed = 123
+    第 N 个状态使用 random_seed + N - 1。
+
+
+四、坐标系与几何
+============================================================
+
+文件：src/mri_dataset/coordinates.py
+
+1. Habitat 世界坐标系
+---------------------
+
+右手坐标系：
+    +Y：向上
+    XZ：地面
+    yaw = 0 时机器人朝向 -Z
+    yaw 正方向遵循右手定则
+
+四元数统一保存为：
+    [x, y, z, w]
+
+距离单位：
+    meter
+
+角度单位：
+    radian
+
+2. Habitat 相机坐标
+-------------------
+
+    +X：右
+    +Y：上
+    -Z：前
+
+3. OpenCV 相机坐标
+------------------
+
+    +X：右
+    +Y：下
+    +Z：前
+
+基变换：
+    HABITAT_FROM_CV = diag(1, -1, -1, 1)
+
+4. 主要函数
+-----------
+
+normalize_angle(yaw_rad)
+    把角度归一化到 [-pi, pi)。
+
+yaw_to_quaternion_xyzw(yaw_rad)
+    把 yaw 转成 xyzw 四元数。
+
+normalize_quaternion_xyzw(q)
+    校验并归一化四元数。
+
+quaternion_to_matrix(q)
+    四元数转 3x3 旋转矩阵。
+
+rotate_vector(q, vector)
+    用四元数旋转向量。
+
+forward_from_quaternion(q)
+    将相机局部前方 [0, 0, -1] 转到世界坐标。
+
+transform_matrix(position, quaternion)
+    生成 4x4 刚体变换矩阵。
+
+invert_transform(T)
+    使用旋转转置和逆平移计算刚体逆矩阵。
+
+camera_transforms(position, quaternion)
+    同时返回：
+    - T_world_from_camera_habitat
+    - T_camera_habitat_from_world
+    - T_world_from_camera_cv
+    - T_camera_cv_from_world
+
+camera_intrinsics(width, height, hfov, near, far)
+    计算 fx、fy、cx、cy 和 K。
+
+backproject_depth(depth, intrinsics)
+    将 pinhole Z-depth 反投影到 OpenCV 相机坐标。
+
+transform_points(T, points)
+    对点集应用 4x4 变换。
+
+project_world_points(...)
+    将世界点投影到目标相机像素。
+
+reproject_between_cameras(...)
+    从源深度反投影到世界，再投影到目标相机。
+
+
+五、WorldState 数据结构
+============================================================
+
+文件：src/mri_dataset/world_state.py
+
+COORDINATE_CONVENTION
+    被写进每个 state.json，冻结坐标、单位和四元数约定。
+
+CameraState
+-----------
+字段：
+    position_world
+    quaternion_world_xyzw
+    intrinsics
+
+create(...)
+    根据相机位姿、图像尺寸、FOV 和裁剪面构建状态。
+
+geometry_dict()
+    输出相机位置、旋转、内参和 Habitat/OpenCV 双坐标变换。
+
+RobotState
+----------
+字段：
+    robot_id
+    base_position_world
+    yaw_rad
+    camera_height_m
+    camera
+    proxy_asset_handle
+    proxy_semantic_id
+    visibility
+
+create(...)
+    根据底盘位置、yaw 和相机高度创建机器人和相机状态。
+
+synchronize_camera()
+    保证相机位置始终为：
+        base_position + [0, camera_height, 0]
+    相机旋转始终与机器人 yaw 一致。
+
+metadata(paths)
+    生成机器人完整 JSON 元数据，包括前向向量、T_world_from_robot、
+    相机变换、文件路径和可见性。
+
+ObjectState
+-----------
+字段：
+    instance_id
+    category
+    asset_handle
+    position_world
+    quaternion_world_xyzw
+    active
+    movable
+    semantic_id
+    bbox
+    visibility
+
+metadata()
+    输出对象字段和 T_world_from_object。
+
+WorldState
+----------
+字段：
+    schema_version
+    state_id
+    scene_id
+    floor_y
+    random_seed
+    robots
+    objects
+    bev
+    overlap
+    parent_state_id
+    intervention
+    geometry_validation
+
+robot(robot_id)
+    按 ID 查找机器人。
+
+object(instance_id)
+    按 ID 查找受控对象。
+
+metadata(...)
+    构造最终 state.json。
+
+
+六、机器人和相机采样
+============================================================
+
+文件：src/mri_dataset/sampling.py
+
+_valid_position(...)
+    检查：
+    - 坐标有限
+    - 位于 navmesh
+    - 楼层高度满足 tolerance
+    - 距障碍物满足最小距离
+
+sample_robot_positions(...)
+    1. 随机生成第一个机器人 anchor。
+    2. 读取 anchor 所在 navmesh island。
+    3. 在 anchor 周围 local_sampling_radius_m 内生成其他机器人。
+    4. 所有机器人必须属于同一 island 和同一楼层。
+    5. 检查机器人之间的最小距离。
+    6. 最多重试 max_tries 次。
+
+sample_yaws(...)
+    random：
+        每个机器人独立随机 yaw。
+    shared_region：
+        所有机器人基本看向同一个局部区域，并加入角度抖动。
+    mixed：
+        65% 使用 shared_region，35% 使用 random。
+
+build_robot_states(...)
+    为每个位置构建 RobotState，随机采样相机高度，分配红/绿/蓝 proxy
+    和 1001/1002/1003 semantic ID。
+
+
+七、受控物体
+============================================================
+
+文件：src/mri_dataset/objects.py
+
+handles_by_suffix(template_manager, suffixes)
+    使用文件名后缀在 Habitat 模板库中解析唯一 handle。
+    匹配不到或匹配多个都会报错。
+
+list_template_records(template_manager)
+    列出 handle、render asset、collision asset、semantic ID 和 scale。
+
+aabb_dict(aabb, transform)
+    将局部 AABB 的 8 个角变换到世界坐标，再计算世界 AABB。
+
+controlled_object_collision_free(...)
+    检查：
+    - 对象 active 状态
+    - AABB 是否存在
+    - 是否离开场景边界
+    - 是否离机器人过近
+    - 是否与其他受控对象 AABB 重叠
+
+
+八、BEV
+============================================================
+
+文件：src/mri_dataset/bev.py
+
+BevMapping
+----------
+字段：
+    x_min, x_max
+    z_min, z_max
+    width, height
+
+from_bounds(...)
+    根据场景世界边界和期望米/像素构造 BEV。
+    宽度由 X extent 决定，高度按 X/Z 实际比例计算。
+
+坐标约定：
+    BEV u 向右 = 世界 +X
+    BEV v 向下 = 世界 +Z
+    图像视觉向上 = 世界 -Z
+
+world_to_bev(x, z)
+    世界坐标转浮点像素坐标。
+
+bev_to_world(u, v)
+    像素坐标转世界 X/Z。
+
+meters_per_pixel_x / meters_per_pixel_z
+    最终实际像素尺度。
+
+habitat_orthographic_depth_to_metric(...)
+    修正 Habitat-Sim 0.3.3 对正交深度使用透视式反投影的问题，
+    将原始正交 depth 恢复为米制深度。
+
+occupancy_from_pathfinder(...)
+    对每个 BEV 像素中心执行 pathfinder.is_navigable，
+    生成 uint8 occupancy。
+
+annotate_bev(...)
+    绘制机器人位置、颜色、朝向、FOV 和相机高度。
+
+compute_fov_overlap(...)
+    用 BEV 中的几何 FOV 扇形计算：
+    - 三机器人共同 IoU
+    - 两两 IoU
+    - easy / medium / hard
+
+该 FOV overlap 是几何近似，不包含墙体遮挡。真实实体可见性来自
+instance 图。
+
+
+九、Habitat-Sim 后端
+============================================================
+
+文件：src/mri_dataset/habitat_backend.py
+类：HabitatBackend
+
+职责
+----
+这是唯一允许直接修改 Habitat 状态的模块。
+
+WorldState 是状态源；Habitat 只负责：
+    - 加载场景
+    - 设置相机
+    - 生成 proxy 和受控对象
+    - 渲染传感器
+    - 执行物理射线验证
+
+初始化
+------
+1. 检查 scene dataset config。
+2. 检查当前场景的显式 navmesh。
+3. 使用独立 PathFinder 预加载 navmesh 和场景边界。
+4. 根据边界构造 BevMapping。
+5. 生成过滤后的临时 scene dataset config：
+   - 删除本机未安装的可选 Fetch URDF。
+   - 删除文件不存在的 navmesh 条目。
+   - 原始 ReplicaCAD 配置不被修改。
+   - 后端关闭时删除临时配置。
+6. 创建 Habitat Simulator。
+7. 再次显式加载当前场景 navmesh。
+8. 加载机器人 proxy 模板。
+9. 解析可控物体白名单。
+
+传感器
+------
+每个机器人 agent：
+    RGB pinhole
+    depth pinhole
+    semantic/instance pinhole
+
+额外 BEV agent：
+    RGB orthographic
+    depth orthographic
+    semantic/instance orthographic
+
+当前共有：
+    Agent 0 = Robot 1
+    Agent 1 = Robot 2
+    Agent 2 = Robot 3
+    Agent 3 = BEV
+
+Habitat-Sim 0.3.3 的 orthographic scale 使用：
+    1 / horizontal_world_extent
+
+apply_world_state(state)
+------------------------
+1. 清除上一个状态生成的刚体。
+2. 同步每个 RobotState 的相机。
+3. 设置不可见 Habitat agent 的相机状态。
+4. 生成可见的 kinematic 机器人 proxy。
+5. 生成 active 的受控物体。
+6. 将 BEV 相机放到场景中心和 floor_y + BEV height。
+7. BEV 相机旋转为垂直向下。
+
+机器人为什么分 agent 和 proxy：
+    Habitat agent 只作为相机，不会自动出现在其他机器人的 RGB 中。
+    proxy 是独立刚体，使机器人可见并进入实例图。
+
+create_object_state(...)
+    临时实例化模板，读取 collision AABB，将 AABB 底面对齐楼层，再构造
+    ObjectState。
+
+refresh_object_bboxes(...)
+    WorldState 应用后，从 Habitat 查询权威碰撞 AABB 并转到世界坐标。
+
+render(state)
+-------------
+1. apply_world_state。
+2. 刷新对象 AABB。
+3. 一次读取所有 agent 观测。
+4. 转换 RGB/depth/instance dtype。
+5. 转换 BEV 正交深度。
+6. 计算：
+       height = BEV camera height - metric depth
+7. 计算 occupancy。
+8. 统计每个实体在每个机器人实例图中的可见像素。
+
+输出：
+    robots[robot_id].rgb
+    robots[robot_id].depth
+    robots[robot_id].instance
+    bev_rgb
+    bev_depth
+    bev_metric_depth
+    bev_instance
+    height
+    occupancy
+
+validate_pinhole_depth_centers(...)
+    将每个相机中心像素 Z-depth 与正前方物理射线命中距离比较。
+
+validate_height_rays(...)
+    随机采样 BEV height 像素，用垂直向下物理射线比较渲染高度和碰撞高度。
+
+close()
+    关闭 Simulator，并删除临时过滤配置。
+
+
+十、Level-1 采集
+============================================================
+
+文件：src/mri_dataset/collector.py
+
+APT1_DEBUG_POSITIONS / YAWS / HEIGHTS
+    apt_1 的固定调试位姿，用于确定性回归。
+
+make_world_state(...)
+    1. 创建 NumPy RNG。
+    2. 设置 Habitat PathFinder seed。
+    3. 采样或使用固定机器人位置。
+    4. 采样 yaw 和相机高度。
+    5. 构建 WorldState。
+    6. 采样受控物体。
+    7. 计算 FOV overlap。
+    8. 验证机器人 navmesh、楼层和间距。
+
+sample_controlled_objects(...)
+    在 Robot 1 周围采样白名单对象，检查机器人距离、对象距离、AABB、
+    场景边界和碰撞。
+
+layout_family(scene_id)
+    将同一公寓的 rearrange/variant 名称归到同一布局 family，防止数据泄漏。
+
+initialize_dataset_root(...)
+    创建：
+    - dataset.json
+    - categories.json
+    - splits/
+    - scenes/
+    - interventions/
+
+update_dataset_index(...)
+    扫描所有 state.json 和 edit JSON，更新 dataset.json 和 split。
+
+当前限制：
+    所有 layout family 暂时都写入 train。
+    val/test 为空。
+    正式跨公寓实验需要按 family 实现 train/val/test 分配。
+
+collect_level1(...)
+    对每个状态：
+    - state ID = state_000001 等
+    - seed = random_seed + index - 1
+    - 构造 WorldState
+    - 渲染并原子保存
+    - 更新数据集索引
+
+已有状态目录不会被覆盖。
+
+
+十一、序列化
+============================================================
+
+文件：src/mri_dataset/serialization.py
+
+write_json(path, data)
+    统一格式写 JSON，禁止 NaN。
+
+save_rendered_state(...)
+    使用临时目录生成完整状态，成功后通过 os.replace 原子发布。
+
+保存内容：
+
+bev/
+    rgb.png
+    annotated.png
+    height.npy       float32
+    occupancy.npy    uint8
+    instance.npy     int32
+
+robots/robot_XX/
+    rgb.png          uint8
+    depth.npy        float32
+    depth_vis.png
+    instance.npy     int32
+
+状态根目录：
+    state.json
+    objects.json
+    contact_sheet.png
+
+state.json 中只保存相对于状态目录或数据集根目录的相对路径，不包含
+机器相关绝对路径。
+
+BEV 元数据包含：
+    世界边界
+    分辨率
+    实际米/像素
+    像素约定
+    相机位姿
+    正交 extent
+    height 定义
+    height ray validation
+
+geometry_validation 包含：
+    pinhole 中心深度射线验证
+
+
+十二、状态读取
+============================================================
+
+文件：src/mri_dataset/state_io.py
+
+read_json(path)
+    读取 JSON。
+
+load_world_state(state_dir)
+    从 state.json 和 objects.json 重建：
+    - CameraState
+    - RobotState
+    - ObjectState
+    - WorldState
+
+item_without_transform(...)
+    删除 JSON 中的派生 T_world_from_object 字段，使其能传入 ObjectState。
+
+
+十三、Level-2 干预
+============================================================
+
+文件：src/mri_dataset/interventions.py
+
+Intervention
+------------
+字段：
+    type
+    target_id
+    parameters
+
+to_dict()
+    序列化结构化干预。
+
+from_dict()
+    从 JSON 构造干预并检查必需字段。
+
+canonical_instruction(...)
+    生成固定英文自然语言指令。
+
+支持类型
+--------
+
+robot_translate
+    默认 target_local。
+    新位置：
+        old_position + forward_m * robot_forward
+    修改后同步相机。
+
+robot_rotate
+    yaw += delta_yaw_rad，并归一化角度。
+    不改变位置。
+
+object_remove
+    active = false。
+
+object_place_relative
+    当前支持 relation = front。
+    将对象放到 reference robot 前方指定距离。
+    保持物体原支撑 Y，不使用机器人底盘 Y。
+
+object_translate
+    支持参考系：
+    - world
+    - object_local
+    - reference_robot
+    同时平移对象 AABB。
+
+apply_intervention(...)
+    使用 deepcopy，不修改 before WorldState。
+    设置 parent_state_id、after state ID 和 intervention。
+
+validate_robot_translation(...)
+    严格检查：
+    - 实际位移等于请求位移，绝对误差 <= 1e-6
+    - 目标仍在 navmesh
+    - 没有换楼层
+    - 不违反机器人最小距离
+
+无效精确目标会被拒绝，不会缩短距离或 snap 到附近点。
+
+
+十四、Level-2 数据收集
+============================================================
+
+文件：src/mri_dataset/level2.py
+
+visibility_transition(...)
+    统计干预目标在每个机器人视角中的：
+    - before visible
+    - after visible
+    - before pixel count
+    - after pixel count
+
+validate_object_edit(...)
+    检查 active 对象：
+    - 地面投影位于导航内部
+    - 不碰撞
+    - 不越界
+
+collect_level2(...)
+    1. 只扫描 Level-1 的 state_XXXXXX，不对 after-state 链式编辑。
+    2. 构造预设干预。
+    3. deepcopy 并应用干预。
+    4. 严格验证目标。
+    5. 使用同一 HabitatBackend 渲染 after-state。
+    6. 写 edit JSON。
+    7. 生成 before/after contact sheet。
+    8. 更新 dataset.json。
+
+当前命令行预设：
+    robot_translate：
+        Robot 2 沿自身前方移动 1 m。
+    robot_rotate：
+        Robot 2 左转 60 度。
+    object_translate：
+        第一个对象沿世界 +X 移动 0.5 m。
+    object_place_relative：
+        第一个对象放到 Robot 1 前方 1 m。
+    object_remove：
+        移除第一个对象。
+
+注意：
+    CLI 参数名 --num-edits-per-state 当前实际表示本次命令总 edit 数量，
+    不是每个状态的 edit 数量。
+
+
+十五、验证
+============================================================
+
+文件：src/mri_dataset/validation.py
+
+validate_state_dir(...)
+    检查：
+    - state.json 可读取
+    - 相机高度
+    - Habitat/OpenCV 变换互逆
+    - robot transform 和 base translation
+    - camera transform 和 camera position
+    - forward vector
+    - OpenCV +Z 与世界前方一致
+    - 世界位置能投影到 BEV
+    - 机器人位于 navmesh
+    - RGB shape/dtype
+    - depth shape/dtype
+    - depth 无 NaN
+    - instance shape
+    - 机器人间最小距离
+    - BEV height shape/dtype
+    - BEV occupancy shape/dtype
+    - BEV instance shape
+    - 对象底部与 floor 对齐
+
+BEV 机器人注册
+--------------
+旧实现使用固定 3 px 阈值，在 2K BEV 下只有约 1.9 cm，不合理。
+
+当前实现：
+    nearest_instance_distance_m(...)
+        将实例像素与机器人底盘中心的像素差乘以 X/Z 米/像素，得到真实距离。
+
+    ROBOT_PROXY_REGISTRATION_TOLERANCE_M = 0.35
+
+该容差覆盖约 0.29 m 半径的扫地机器人 footprint 和少量栅格误差。
+机器人在桌子等家具下被俯视相机部分遮挡时，最近可见实例像素仍应位于
+真实 footprint 范围内。
+
+如果 proxy 完全不可见，则验证 annotated BEV 中的显式中心标记。
+
+validate_dataset(...)
+    1. 扫描全部状态。
+    2. 每个 scene 只创建一个 HabitatBackend。
+    3. 使用真实 PathFinder 验证。
+    4. 检查 Level-2 robot_translate 的精确位移。
+    5. 检查 Level-2 object_translate 的精确位移。
+    6. 返回：
+       root
+       states_checked
+       errors
+       passed
+
+
+十六、可视化
+============================================================
+
+文件：src/mri_dataset/visualization.py
+
+depth_visualization(...)
+    将 float32 depth 转换为灰度 PNG，仅供查看。
+    默认最大显示深度 10 m，并使用有效深度第 99 百分位限制范围。
+
+contact_sheet(...)
+    组合：
+    - annotated BEV
+    - Robot 1 RGB
+    - Robot 2 RGB
+    - Robot 3 RGB
+
+当前每个机器人预览单元为 1024 x 1024。
+三个机器人一行，因此典型 contact sheet 宽度约 3072。
+
+before_after_contact_sheet(...)
+    上半部分 BEFORE，下半部分 AFTER，底部写自然语言干预。
+
+
+十七、机器人 mesh
+============================================================
+
+文件：scripts/generate_robot_proxy_meshes.py
+
+作用：
+    程序化生成红、绿、蓝三套写实低模扫地机器人 OBJ、MTL 和
+    object_config.json。
+
+模型特征：
+    - 32 边圆形机身
+    - 分层外壳和顶盖
+    - 橡胶防撞圈
+    - 两个驱动轮
+    - 三臂侧刷
+    - 顶部 lidar
+    - 状态按钮
+    - 前后传感器窗口
+    - 无贴图依赖
+    - kinematic rigid object
+    - bounding-box collision
+
+材质：
+    body
+    deck
+    trim
+    sensor
+    wheel
+    brush
+    status
+
+模型大约：
+    直径约 0.60 m
+    高度约 0.18 m
+    每个 OBJ 约 515 行
+
+重新生成：
+    conda run -n habitat python scripts/generate_robot_proxy_meshes.py
+
+
+十八、命令行脚本
+============================================================
+
+scripts/_bootstrap.py
+    将项目 src/ 加入 Python import path，使脚本无需安装 package 即可运行。
+
+scripts/collect_level1.py
+    参数：
+    --config
+    --num-states
+    --scene
+    --output-root
+
+    加载配置，为每个场景创建 HabitatBackend 并运行 collect_level1。
+
+scripts/collect_level2.py
+    参数：
+    --config
+    --root
+    --scene
+    --num-edits-per-state
+    --type
+
+    type 可选：
+    robot_translate
+    robot_rotate
+    object_translate
+    object_place_relative
+    object_remove
+
+scripts/debug_world_state.py
+    为 apt_1 生成固定三机器人状态，适合快速几何回归。
+
+scripts/inspect_scene.py
+    输出：
+    - scene ID
+    - dataset config
+    - navmesh
+    - 世界 bounds
+    - navmesh islands
+    - BEV mapping
+    - 已解析物体 handle
+
+scripts/list_object_templates.py
+    列出 Habitat 中实际加载的 rigid object template。
+    --contains 可按字符串筛选。
+
+scripts/validate_dataset.py
+    参数：
+    --root
+    --config
+    --no-simulator
+
+    默认使用 Habitat/PathFinder 完整验证。
+    --no-simulator 只检查文件和元数据，不验证 navmesh。
+
+scripts/make_contact_sheet.py
+    从全部状态 contact_sheet 中随机抽样，复制到：
+        <root>/contact_sheets/
+
+scripts/generate_robot_proxy_meshes.py
+    重新生成三套扫地机器人资产。
+
+
+十九、测试
+============================================================
+
+tests/test_coordinates.py
+    验证已知 yaw 和世界前向向量。
+
+tests/test_transforms.py
+    验证：
+    - 相机矩阵互逆
+    - yaw=0 时 OpenCV +Z 映射到世界 -Z
+
+tests/test_bev_mapping.py
+    验证：
+    - world -> BEV -> world 往返
+    - BEV 箭头方向
+    - Habitat-Sim 0.3.3 正交深度转换
+
+tests/test_interventions.py
+    验证：
+    - 机器人局部前进精确位移
+    - 相机同步
+    - 旋转不引起平移
+
+tests/test_object_interventions.py
+    验证：
+    - 世界坐标物体平移
+    - AABB 同步平移
+    - 相对前方放置
+    - 支撑高度保持
+    - 移除不修改 before-state
+
+tests/test_validation.py
+    验证 BEV 实例注册使用米制距离，在粗分辨率和高分辨率下结果一致。
+
+当前测试数：
+    12
+
+
+二十、输出数据格式
+============================================================
+
+典型数据集：
+
+outputs/<dataset>/
+    dataset.json
+    categories.json
+    splits/
+        train.json
+        val.json
+        test.json
+    scenes/
+        apt_1/
+            scene.json
+            states/
+                state_000001/
+                    state.json
+                    objects.json
+                    contact_sheet.png
+                    bev/
+                        rgb.png
+                        annotated.png
+                        height.npy
+                        occupancy.npy
+                        instance.npy
+                    robots/
+                        robot_01/
+                            rgb.png
+                            depth.npy
+                            depth_vis.png
+                            instance.npy
+                        robot_02/
+                        robot_03/
+                state_after_000001/
+    interventions/
+        apt_1/
+            edit_000001.json
+            edit_000001_contact_sheet.png
+    contact_sheets/
+
+文件 dtype：
+    RGB PNG             uint8
+    robot depth.npy     float32，单位米
+    robot instance.npy  int32
+    BEV height.npy      float32，单位米
+    BEV occupancy.npy   uint8
+    BEV instance.npy    int32
+
+dataset.json：
+    - schema_version
+    - generator
+    - 完整 config
+    - split_unit
+    - states 相对路径
+    - interventions 相对路径
+
+scene.json：
+    - scene_id
+    - layout_family
+    - navmesh 相对路径
+    - bounds_world
+
+state.json：
+    - schema_version
+    - state_id
+    - scene_id
+    - floor_y
+    - random_seed
+    - coordinate_convention
+    - bev
+    - robots
+    - objects_path
+    - controlled_object_count
+    - difficulty_overlap
+    - parent_state_id
+    - intervention
+    - geometry_validation
+
+objects.json：
+    每个受控对象的状态、世界 AABB、transform 和可见性。
+
+edit JSON：
+    - edit_id
+    - before/after state ID 和路径
+    - structured_intervention
+    - instruction
+    - paraphrases
+    - mllm_generated
+    - human_verified
+    - visibility_transition
+
+
+二十一、完整运行流程
+============================================================
+
+1. 进入项目
+-----------
+
+cd /cvhci/temp/yyang/Multi_view_world_model/habitat
+
+2. 运行测试
+-----------
+
+PYTHONDONTWRITEBYTECODE=1 \
+conda run -n habitat python -m unittest discover -s tests -v
+
+3. 检查场景
+-----------
+
+conda run -n habitat python scripts/inspect_scene.py \
+  --config configs/collector.json \
+  --scene apt_1
+
+4. 生成小规模 Pilot
+-------------------
+
+conda run -n habitat python scripts/collect_level1.py \
+  --config configs/collector.json \
+  --scene apt_1 \
+  --num-states 10 \
+  --output-root outputs/uhd_pilot
+
+5. 验证 Pilot
+------------
+
+conda run -n habitat python scripts/validate_dataset.py \
+  --root outputs/uhd_pilot \
+  --config configs/collector.json
+
+6. 生成检查图
+-------------
+
+conda run -n habitat python scripts/make_contact_sheet.py \
+  --root outputs/uhd_pilot \
+  --num-samples 10 \
+  --seed 7
+
+7. 生成正式 Level-1
+-------------------
+
+conda run -n habitat python scripts/collect_level1.py \
+  --config configs/collector.json \
+  --scene apt_1 \
+  --num-states 1000 \
+  --output-root outputs/uhd_full_dataset
+
+8. 生成 Level-2
+---------------
+
+机器人前进：
+
+conda run -n habitat python scripts/collect_level2.py \
+  --config configs/collector.json \
+  --root outputs/uhd_full_dataset \
+  --scene apt_1 \
+  --num-edits-per-state 100 \
+  --type robot_translate
+
+机器人旋转：
+
+conda run -n habitat python scripts/collect_level2.py \
+  --config configs/collector.json \
+  --root outputs/uhd_full_dataset \
+  --scene apt_1 \
+  --num-edits-per-state 100 \
+  --type robot_rotate
+
+物体平移：
+
+conda run -n habitat python scripts/collect_level2.py \
+  --config configs/collector.json \
+  --root outputs/uhd_full_dataset \
+  --scene apt_1 \
+  --num-edits-per-state 100 \
+  --type object_translate
+
+物体相对放置：
+
+conda run -n habitat python scripts/collect_level2.py \
+  --config configs/collector.json \
+  --root outputs/uhd_full_dataset \
+  --scene apt_1 \
+  --num-edits-per-state 100 \
+  --type object_place_relative
+
+移除物体：
+
+conda run -n habitat python scripts/collect_level2.py \
+  --config configs/collector.json \
+  --root outputs/uhd_full_dataset \
+  --scene apt_1 \
+  --num-edits-per-state 100 \
+  --type object_remove
+
+9. 最终验证
+-----------
+
+conda run -n habitat python scripts/validate_dataset.py \
+  --root outputs/uhd_full_dataset \
+  --config configs/collector.json
+
+
+二十二、多公寓数据
+============================================================
+
+当前配置只有：
+    apt_1
+
+因此所有状态来自同一套公寓，但 apt_1 本身包含多个房间。
+机器人在第一个机器人周围 3.5 m 内聚类，因此通常位于同一房间或相邻房间。
+
+本地 navmesh 包含：
+    apt_0
+    apt_1
+    apt_2
+    apt_3
+    apt_4
+    apt_5
+
+可将 collector.json 改为：
+
+    "scenes": [
+      "apt_0",
+      "apt_1",
+      "apt_2",
+      "apt_3",
+      "apt_4",
+      "apt_5"
+    ]
+
+然后运行 collect_level1 时不传 --scene。
+num-states 表示每个场景生成的状态数。
+
+推荐按公寓 family 划分：
+    train = apt_0, apt_1, apt_2, apt_3
+    val   = apt_4
+    test  = apt_5
+
+不能将同一公寓的随机视角拆分到 train 和 test，否则会发生布局泄漏。
+当前 update_dataset_index 尚未自动实现 4/1/1 分配，需要扩展。
+
+
+二十三、已知限制
+============================================================
+
+1. 当前默认只有 apt_1。
+2. train/val/test 自动划分尚未完成，当前全部进入 train。
+3. 扫地机器人本体约 0.18 m，相机高度 0.4–1.4 m；没有可变伸缩杆。
+4. Level-2 CLI 的干预距离和目标是代码内预设，不是独立命令行参数。
+5. --num-edits-per-state 当前表示本次命令总 edit 数。
+6. Level-1 不能在同一个 root 上覆盖或直接续跑已有 state ID。
+7. 2K 数据体积很大。
+8. FOV overlap 是二维几何近似，不考虑墙体遮挡。
+9. 场景没有完整原生 semantic scene；机器人和受控物体使用显式 semantic ID。
+10. Habitat 仍可能打印 empty_stage handle 和无原生语义标注 Warning，
+    但不影响 apt_1 RGB-D、显式实例 ID 或验证。
+
+
+二十四、存储估算
+============================================================
+
+2K 默认模式每个状态约 120–140 MB。
+
+大致规模：
+    10 状态      约 1.2–1.4 GB
+    100 状态     约 12–14 GB
+    1000 状态    约 120–140 GB
+    1500 状态    约 180–210 GB
+
+Level-2 的每个 after-state 会保存完整 RGB/depth/instance/BEV，因此空间与
+Level-1 状态接近。
+
+
+二十五、最近验证结果
+============================================================
+
+Pilot：
+    root = outputs/uhd_pilot
+    states_checked = 10
+    errors = {}
+    passed = true
+
+Contact sheets：
+    10 张成功生成。
+
+单元测试：
+    12 / 12 通过。
+
+BEV 修复：
+    旧的固定 3 px 阈值已替换为 0.35 m 米制 footprint 容差。
+    该验证与图像分辨率无关。
+
+Habitat 配置日志：
+    未安装的可选 Fetch URDF 和缺失 v3_sc4 navmesh 会在运行时过滤。
+    原始 ReplicaCAD 配置不会被修改。
