@@ -17,7 +17,12 @@ def main():
         report = {
             "scene_id": args.scene, "dataset_config": str(config.dataset_config_path),
             "navmesh": str(backend.navmesh_path),
-            "bounds": [backend.scene_bounds[0].tolist(), backend.scene_bounds[1].tolist()],
+            "navmesh_bounds": [
+                backend.navmesh_bounds[0].tolist(), backend.navmesh_bounds[1].tolist()
+            ],
+            "render_bev_bounds": [
+                backend.render_bev_bounds[0].tolist(), backend.render_bev_bounds[1].tolist()
+            ],
             "num_islands": backend.sim.pathfinder.num_islands,
             "bev": backend.mapping.metadata(), "controlled_handles": backend.controlled_handles,
         }

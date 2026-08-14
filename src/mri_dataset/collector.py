@@ -43,10 +43,18 @@ def make_world_state(backend, config, state_id: str, seed: int, deterministic_de
         )
         yaws = sample_yaws(positions, rng, config.heading_mode, config.shared_heading_jitter_deg)
         heights = None
+    surface_ys = np.asarray(
+        [backend.floor_surface_y(point) for point in positions], dtype=np.float64
+    )
+    if float(np.ptp(surface_ys)) > config.floor_tolerance_m:
+        raise ValueError("Robot samples resolve to inconsistent physical floor elevations")
+    for point, surface_y in zip(positions, surface_ys):
+        point[1] = surface_y
+    floor_y = float(np.median(surface_ys))
     robots = build_robot_states(positions, yaws, rng, config, deterministic_heights=heights)
     state = WorldState(
         schema_version="0.1.0", state_id=state_id, scene_id=backend.scene_id,
-        floor_y=float(positions[0][1]), random_seed=seed, robots=robots,
+        floor_y=floor_y, random_seed=seed, robots=robots,
     )
     state.objects = sample_controlled_objects(backend, state, config, rng)
     state.overlap = compute_fov_overlap(backend.mapping, robots, config.hfov_deg)
@@ -70,7 +78,10 @@ def sample_controlled_objects(backend, state, config, rng) -> list:
                 ),
                 dtype=np.float64,
             )
-            if not np.all(np.isfinite(point)) or abs(point[1] - state.floor_y) > config.floor_tolerance_m:
+            if not np.all(np.isfinite(point)):
+                continue
+            object_floor_y = backend.floor_surface_y(point)
+            if abs(object_floor_y - state.floor_y) > config.floor_tolerance_m:
                 continue
             robot_distances = [
                 np.linalg.norm(point[[0, 2]] - np.asarray(robot.base_position_world)[[0, 2]])
@@ -84,9 +95,12 @@ def sample_controlled_objects(backend, state, config, rng) -> list:
                 continue
             if object_distances and min(object_distances) < config.controlled_object_min_separation_m:
                 continue
-            candidate = backend.create_object_state(category, point[0], point[2], state.floor_y, index)
+            candidate = backend.create_object_state(category, point[0], point[2], object_floor_y, index)
             state.objects = result + [candidate]
-            if controlled_object_collision_free(candidate, state, backend.scene_bounds):
+            if (
+                controlled_object_collision_free(candidate, state, backend.render_bev_bounds)
+                and backend.object_collision_free(state, candidate.instance_id)
+            ):
                 result.append(candidate)
                 break
         else:
@@ -175,7 +189,13 @@ def collect_level1(backend, config, root: Path, num_states: int, deterministic_d
             "scene_id": backend.scene_id,
             "layout_family": layout_family(backend.scene_id),
             "navmesh": str(Path(config.navmesh_root) / f"{backend.scene_id}.navmesh"),
-            "bounds_world": [backend.scene_bounds[0].tolist(), backend.scene_bounds[1].tolist()],
+            "bounds_world": [backend.render_bev_bounds[0].tolist(), backend.render_bev_bounds[1].tolist()],
+            "navmesh_bounds_world": [
+                backend.navmesh_bounds[0].tolist(), backend.navmesh_bounds[1].tolist()
+            ],
+            "render_bev_bounds_world": [
+                backend.render_bev_bounds[0].tolist(), backend.render_bev_bounds[1].tolist()
+            ],
         },
     )
     saved = []

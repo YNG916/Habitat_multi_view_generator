@@ -13,8 +13,17 @@ from .coordinates import forward_from_quaternion, yaw_to_quaternion_xyzw
 ROBOT_COLORS = [(230, 55, 55), (45, 190, 90), (50, 105, 235)]
 
 
-def habitat_orthographic_depth_to_metric(depth: np.ndarray, near: float, far: float) -> np.ndarray:
-    """Invert Habitat-Sim 0.3.3 perspective-style unprojection of ortho depth."""
+def habitat_orthographic_depth_to_metric(
+    depth: np.ndarray, near: float, far: float
+) -> np.ndarray:
+    """Linearize Habitat-Sim 0.3.3 orthographic DEPTH observations.
+
+    Habitat does run its generic depth-unprojection pass before Python readback.
+    For a pinhole projection that output is metric Z-depth. With the v0.3.3
+    orthographic projection matrix, however, the same generic pass yields a
+    reciprocal pseudo-depth. This inverse mapping is verified against real
+    downward orthographic observations and Bullet rays in the integration test.
+    """
     raw = np.asarray(depth, dtype=np.float64)
     if not 0.0 < near < far:
         raise ValueError("Orthographic near/far planes must satisfy 0 < near < far")
@@ -78,14 +87,39 @@ class BevMapping:
         return result
 
 
-def occupancy_from_pathfinder(pathfinder, mapping: BevMapping, floor_y: float) -> np.ndarray:
+def occupancy_from_pathfinder(
+    pathfinder,
+    mapping: BevMapping,
+    floor_y: float,
+    navmesh_bounds=None,
+) -> np.ndarray:
+    """Rasterize NavMesh in C++ and register it to the visual BEV.
+
+    Habitat rows increase with world +Z and columns with +X. The normalized
+    lookup also supports visual bounds that extend beyond the NavMesh.
+    """
+    if navmesh_bounds is None:
+        navmesh_bounds = pathfinder.get_bounds()
+    nav_low = np.asarray(navmesh_bounds[0], dtype=np.float64)
+    nav_high = np.asarray(navmesh_bounds[1], dtype=np.float64)
+    native_mpp = min(mapping.meters_per_pixel_x, mapping.meters_per_pixel_z)
+    native = np.asarray(
+        pathfinder.get_topdown_view(float(native_mpp), float(floor_y)),
+        dtype=np.uint8,
+    )
     occupancy = np.zeros((mapping.height, mapping.width), dtype=np.uint8)
-    # This explicit pixel-center query freezes registration independently of any
-    # undocumented orientation used by PathFinder.get_topdown_view().
-    for row in range(mapping.height):
-        for col in range(mapping.width):
-            x, z = mapping.bev_to_world(col, row)
-            occupancy[row, col] = int(pathfinder.is_navigable(np.array([x, floor_y, z])))
+    if native.ndim != 2 or 0 in native.shape:
+        return occupancy
+
+    xs = np.linspace(mapping.x_min, mapping.x_max, mapping.width)
+    zs = np.linspace(mapping.z_min, mapping.z_max, mapping.height)
+    x_extent = float(nav_high[0] - nav_low[0])
+    z_extent = float(nav_high[2] - nav_low[2])
+    cols = np.floor((xs - nav_low[0]) / x_extent * native.shape[1]).astype(np.int64)
+    rows = np.floor((zs - nav_low[2]) / z_extent * native.shape[0]).astype(np.int64)
+    valid_cols = (cols >= 0) & (cols < native.shape[1])
+    valid_rows = (rows >= 0) & (rows < native.shape[0])
+    occupancy[np.ix_(valid_rows, valid_cols)] = native[np.ix_(rows[valid_rows], cols[valid_cols])]
     return occupancy
 
 

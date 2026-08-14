@@ -33,11 +33,26 @@ def validate_object_edit(backend, state, target_id: str) -> None:
     obj = state.object(target_id)
     if not obj.active:
         return
-    floor_point = np.asarray([obj.position_world[0], state.floor_y, obj.position_world[2]])
-    if not backend.sim.pathfinder.is_navigable(floor_point):
+    query = np.asarray([obj.position_world[0], state.floor_y, obj.position_world[2]])
+    floor_point = np.asarray(backend.sim.pathfinder.snap_point(query), dtype=np.float64)
+    if (
+        not np.all(np.isfinite(floor_point))
+        or not backend.sim.pathfinder.is_navigable(floor_point)
+    ):
         raise ValueError("Controlled object target is outside the navigable interior")
-    if not controlled_object_collision_free(obj, state, backend.scene_bounds):
-        raise ValueError("Controlled object edit collides or leaves scene bounds")
+    physical_floor_y = backend.floor_surface_y(floor_point)
+    if abs(physical_floor_y - state.floor_y) > backend.config.floor_tolerance_m:
+        raise ValueError("Controlled object target is outside the same physical floor")
+    if state.intervention.get("type") == "object_place_relative":
+        backend.support_object_on_floor(obj, physical_floor_y)
+    if not controlled_object_collision_free(obj, state, backend.render_bev_bounds):
+        raise ValueError("Controlled object edit overlaps another controlled entity or leaves visual bounds")
+    collision = backend.object_collision_report(state, target_id)
+    if not collision["collision_free"]:
+        raise ValueError(
+            "Controlled object edit penetrates static scene geometry: "
+            f"{collision['rejected_contacts']}"
+        )
 
 
 def collect_level2(backend, config, root: Path, num_edits: int, edit_type: str = "robot_translate") -> List[Path]:

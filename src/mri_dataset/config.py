@@ -17,6 +17,7 @@ class CollectorConfig:
     output_root: str = "outputs/mri_dataset"
     gpu_device_id: int = 0
     num_robots: int = 3
+    # Formal dataset defaults. Use collector_pilot.json for quick validation.
     width: int = 2048
     height: int = 2048
     hfov_deg: float = 90.0
@@ -32,8 +33,13 @@ class CollectorConfig:
     shared_heading_jitter_deg: float = 20.0
     bev_meters_per_pixel: float = 0.00625
     bev_camera_height_m: float = 2.2
+    bev_ceiling_clearance_m: float = 0.15
     bev_near: float = 0.02
     bev_far: float = 10.0
+    height_validation_samples: int = 24
+    height_validation_max_error_m: float = 0.02
+    collision_penetration_tolerance_m: float = 0.002
+    support_contact_tolerance_m: float = 0.005
     enable_instance: bool = True
     enable_robot_proxies: bool = True
     robot_proxy_configs: List[str] = field(

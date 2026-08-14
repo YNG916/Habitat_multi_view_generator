@@ -79,7 +79,9 @@ def apply_intervention(before: WorldState, edit: Intervention, after_state_id: O
         old = np.asarray(obj.position_world, dtype=np.float64)
         target = np.asarray(robot.base_position_world, dtype=np.float64)
         target += float(p["distance_m"]) * forward
-        target[1] = obj.position_world[1]  # support height is independent of robot base height
+        # The Habitat backend resolves the target XZ's physical support Y
+        # before rendering; keep the old Y only as an intermediate pure-state value.
+        target[1] = obj.position_world[1]
         obj.position_world = target.tolist()
         _translate_bbox(obj, target - old)
     elif edit.type == "object_translate":

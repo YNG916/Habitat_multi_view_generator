@@ -3,7 +3,11 @@ import unittest
 
 import numpy as np
 
-from mri_dataset.bev import BevMapping, habitat_orthographic_depth_to_metric
+from mri_dataset.bev import (
+    BevMapping,
+    habitat_orthographic_depth_to_metric,
+    occupancy_from_pathfinder,
+)
 from mri_dataset.coordinates import forward_from_quaternion, yaw_to_quaternion_xyzw
 
 
@@ -31,16 +35,34 @@ class BevMappingTests(unittest.TestCase):
             np.testing.assert_allclose(direction, expected, atol=0.01)
 
 
-    def test_habitat_033_orthographic_depth_conversion(self):
-        near, far = 0.02, 10.0
-        distances = np.array([0.1, 0.7, 1.0, 2.3], dtype=np.float64)
-        depth_buffer = (distances - near) / (far - near)
-        coefficient_a = 0.5 * (-2.0 / (far - near) - 1.0)
-        coefficient_b = 0.5 * (-(far + near) / (far - near))
-        habitat_values = coefficient_b / (depth_buffer + coefficient_a)
-        np.testing.assert_allclose(
-            habitat_orthographic_depth_to_metric(habitat_values, near, far), distances, atol=1e-6
+    def test_orthographic_conversion_masks_invalid_values(self):
+        actual = habitat_orthographic_depth_to_metric(
+            np.array([0.0, np.nan], dtype=np.float32), 0.02, 10.0
         )
+        self.assertTrue(np.isnan(actual).all())
+        with self.assertRaises(ValueError):
+            habitat_orthographic_depth_to_metric(np.ones(1), 1.0, 1.0)
+
+
+    def test_navmesh_occupancy_is_registered_into_larger_visual_bounds(self):
+        class FakePathfinder:
+            @staticmethod
+            def get_bounds():
+                return np.array([0.0, 0.0, 0.0]), np.array([2.0, 1.0, 2.0])
+
+            @staticmethod
+            def get_topdown_view(_meters_per_pixel, _floor_y):
+                return np.array([[1, 0], [0, 1]], dtype=bool)
+
+        mapping = BevMapping(-1.0, 3.0, -1.0, 3.0, 5, 5)
+        occupancy = occupancy_from_pathfinder(
+            FakePathfinder(), mapping, 0.0, FakePathfinder.get_bounds()
+        )
+        self.assertEqual(occupancy[1, 1], 1)
+        self.assertEqual(occupancy[1, 2], 0)
+        self.assertEqual(occupancy[2, 2], 1)
+        self.assertEqual(int(occupancy[0].sum()), 0)
+        self.assertEqual(int(occupancy[:, 0].sum()), 0)
 
 
 if __name__ == "__main__":

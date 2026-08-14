@@ -38,17 +38,39 @@ class HabitatBackend:
         if not preflight.load_nav_mesh(str(self.navmesh_path)):
             raise RuntimeError(f"Could not load navmesh: {self.navmesh_path}")
         bounds = preflight.get_bounds()
-        self.scene_bounds = (
+        self.navmesh_bounds = (
             np.asarray(bounds[0], dtype=np.float64),
             np.asarray(bounds[1], dtype=np.float64),
         )
+        # Probe the complete rendered scene before fixing the orthographic
+        # sensor extent. Navigability and visual coverage are different bounds.
+        self.render_bev_bounds = self.navmesh_bounds
+        self.scene_bounds = self.render_bev_bounds
         self.mapping = BevMapping.from_bounds(
-            self.scene_bounds[0], self.scene_bounds[1], config.bev_meters_per_pixel
+            self.render_bev_bounds[0], self.render_bev_bounds[1],
+            config.bev_meters_per_pixel,
         )
         self._runtime_dataset_config_path = self._filtered_dataset_config()
+        self.sim = None
+        probe = None
         try:
+            probe = self._create_simulator(bounds_probe=True)
+            scene_aabb = probe.scene_aabb
+            self.render_bev_bounds = (
+                np.asarray(scene_aabb.min, dtype=np.float64),
+                np.asarray(scene_aabb.max, dtype=np.float64),
+            )
+            self.scene_bounds = self.render_bev_bounds
+            self.mapping = BevMapping.from_bounds(
+                self.render_bev_bounds[0], self.render_bev_bounds[1],
+                config.bev_meters_per_pixel,
+            )
+            probe.close()
+            probe = None
             self.sim = self._create_simulator()
         except Exception:
+            if probe is not None:
+                probe.close()
             self._remove_runtime_dataset_config()
             raise
         if not self.sim.pathfinder.load_nav_mesh(str(self.navmesh_path)):
@@ -56,6 +78,7 @@ class HabitatBackend:
             raise RuntimeError(f"Habitat loaded {scene_id} but explicit navmesh load failed")
         self.spawned_object_ids: List[int] = []
         self.render_ids: Dict[str, Tuple[int, int]] = {}
+        self._occupancy_cache: Dict[float, np.ndarray] = {}
         self._load_proxy_templates()
         self.controlled_handles = self._resolve_controlled_handles()
 
@@ -104,8 +127,18 @@ class HabitatBackend:
             path.unlink(missing_ok=True)
             self._runtime_dataset_config_path = None
 
-    def _create_simulator(self):
+    def _create_simulator(self, bounds_probe: bool = False):
         hs = self.habitat_sim
+        if bounds_probe:
+            agent = hs.agent.AgentConfiguration()
+            agent.sensor_specifications = []
+            simulator = hs.SimulatorConfiguration()
+            simulator.scene_dataset_config_file = str(self._runtime_dataset_config_path)
+            simulator.scene_id = self.scene_id
+            simulator.enable_physics = True
+            simulator.gpu_device_id = int(self.config.gpu_device_id)
+            return hs.Simulator(hs.Configuration(simulator, [agent]))
+
         agent_configs = []
         for index in range(1, self.config.num_robots + 1):
             sensors = []
@@ -126,6 +159,7 @@ class HabitatBackend:
                     [self.config.height, self.config.width], self.config.near, self.config.far,
                 )
                 instance.hfov = self.config.hfov_deg
+                instance.semantic_target = type(instance.semantic_target).OBJECT_ID
                 sensors.append(instance)
             agent = hs.agent.AgentConfiguration()
             agent.sensor_specifications = sensors
@@ -146,6 +180,7 @@ class HabitatBackend:
                 [self.mapping.height, self.mapping.width], self.config.bev_near, self.config.bev_far,
             )
             spec.ortho_scale = 1.0 / (self.mapping.x_max - self.mapping.x_min)
+            spec.semantic_target = type(spec.semantic_target).OBJECT_ID
             bev_sensors.append(spec)
         bev_agent = hs.agent.AgentConfiguration()
         bev_agent.sensor_specifications = bev_sensors
@@ -219,6 +254,23 @@ class HabitatBackend:
         self.render_ids[entity_id] = (int(obj.object_id), int(semantic_id))
         return obj
 
+    def bev_camera_height_above_floor(self, floor_y: float) -> float:
+        scene_override = self.config.scene_overrides.get(self.scene_id, {})
+        if "bev_camera_height_m" not in scene_override:
+            raise ValueError(
+                f"{self.scene_id} requires an explicit scene_overrides.bev_camera_height_m"
+            )
+        requested = float(scene_override["bev_camera_height_m"])
+        clearance = float(self.config.scene_value(self.scene_id, "bev_ceiling_clearance_m"))
+        maximum = float(self.render_bev_bounds[1][1] - floor_y - clearance)
+        if not float(self.config.bev_near) < requested < maximum:
+            raise ValueError(
+                f"BEV camera height {requested:.3f} m is unsafe for {self.scene_id}; "
+                f"it must be below the scene ceiling estimate with {clearance:.3f} m clearance "
+                f"(maximum {maximum:.3f} m). Add a scene_overrides entry."
+            )
+        return requested
+
     def apply_world_state(self, state: WorldState) -> None:
         self._clear_spawned()
         for index, robot in enumerate(state.robots):
@@ -242,7 +294,7 @@ class HabitatBackend:
 
         center_x = 0.5 * (self.mapping.x_min + self.mapping.x_max)
         center_z = 0.5 * (self.mapping.z_min + self.mapping.z_max)
-        bev_height = float(self.config.scene_value(self.scene_id, "bev_camera_height_m"))
+        bev_height = self.bev_camera_height_above_floor(state.floor_y)
         camera_y = float(state.floor_y + bev_height)
         bev_state = self.habitat_sim.AgentState()
         bev_state.position = np.array([center_x, camera_y, center_z], dtype=np.float32)
@@ -284,6 +336,96 @@ class HabitatBackend:
                 transform_matrix(obj_state.position_world, obj_state.quaternion_world_xyzw),
             )
 
+    def floor_surface_y(self, position_world) -> float:
+        """Resolve physical floor Y below a same-floor NavMesh sample."""
+        point = np.asarray(position_world, dtype=np.float64)
+        origin = point.copy()
+        origin[1] += 0.35
+        ray = self.habitat_sim.geo.Ray(
+            origin.astype(np.float32), np.array([0.0, -1.0, 0.0], dtype=np.float32)
+        )
+        result = self.sim.cast_ray(ray, max_distance=1.5, buffer_distance=0.0)
+        for hit in result.hits:
+            if int(getattr(hit, "object_id", -1)) in self.spawned_object_ids:
+                continue
+            return float(origin[1] - hit.ray_distance)
+        raise RuntimeError(f"Could not resolve physical floor below {point.tolist()}")
+
+    def support_object_on_floor(self, obj_state: ObjectState, floor_y: float) -> None:
+        """Set object Y from its collision AABB instead of preserving stale Y."""
+        manager = self.sim.get_rigid_object_manager()
+        handle = self.resolve_runtime_handle(obj_state.asset_handle)
+        rigid = manager.add_object_by_template_handle(handle)
+        if rigid is None:
+            raise RuntimeError(f"Could not instantiate controlled object template {handle}")
+        try:
+            local_aabb = rigid.collision_shape_aabb
+            position = np.asarray(obj_state.position_world, dtype=np.float64)
+            position[1] = float(floor_y) - float(local_aabb.min[1])
+            obj_state.position_world = position.tolist()
+            obj_state.bbox = aabb_dict(
+                local_aabb,
+                transform_matrix(position, obj_state.quaternion_world_xyzw),
+            )
+        finally:
+            manager.remove_object_by_id(rigid.object_id)
+
+    def object_collision_report(self, state: WorldState, target_id: str) -> dict:
+        """Use Bullet contacts to reject penetration into the static scene/entities."""
+        self.apply_world_state(state)
+        self.refresh_object_bboxes(state)
+        rigid_id = self.render_ids[target_id][0]
+        rigid = self.sim.get_rigid_object_manager().get_object_by_id(rigid_id)
+        # Bullet does not report KINEMATIC-vs-KINEMATIC overlap. Temporarily
+        # make only the query object dynamic, run discrete detection, and do
+        # not advance simulation time.
+        rigid.motion_type = self.habitat_sim.physics.MotionType.DYNAMIC
+        rigid.linear_velocity = np.zeros(3, dtype=np.float32)
+        rigid.angular_velocity = np.zeros(3, dtype=np.float32)
+        target = state.object(target_id)
+        bbox_bottom = float(target.bbox["min_world"][1])
+        penetration_tolerance = float(self.config.collision_penetration_tolerance_m)
+        support_tolerance = float(self.config.support_contact_tolerance_m)
+        self.sim.perform_discrete_collision_detection()
+        rejected = []
+        contacts_checked = 0
+        for contact in self.sim.get_physics_contact_points():
+            if not contact.is_active:
+                continue
+            if rigid_id not in (contact.object_id_a, contact.object_id_b):
+                continue
+            contacts_checked += 1
+            distance = float(contact.contact_distance)
+            if distance >= -penetration_tolerance:
+                continue
+            target_is_a = contact.object_id_a == rigid_id
+            other_id = int(contact.object_id_b if target_is_a else contact.object_id_a)
+            target_position = (
+                contact.position_on_a_in_ws if target_is_a else contact.position_on_b_in_ws
+            )
+            normal = np.asarray(contact.contact_normal_on_b_in_ws, dtype=np.float64)
+            is_floor_support = (
+                other_id == int(self.habitat_sim.stage_id)
+                and abs(float(normal[1])) >= 0.9
+                and abs(float(target_position[1]) - bbox_bottom) <= 0.03
+                and distance >= -support_tolerance
+            )
+            if not is_floor_support:
+                rejected.append({
+                    "other_object_id": other_id,
+                    "penetration_m": -distance,
+                    "target_contact_world": [float(x) for x in target_position],
+                })
+        return {
+            "collision_free": not rejected,
+            "target_object_id": int(rigid_id),
+            "contacts_checked": contacts_checked,
+            "rejected_contacts": rejected,
+        }
+
+    def object_collision_free(self, state: WorldState, target_id: str) -> bool:
+        return bool(self.object_collision_report(state, target_id)["collision_free"])
+
     def render(self, state: WorldState) -> dict:
         self.apply_world_state(state)
         self.refresh_object_bboxes(state)
@@ -305,12 +447,20 @@ class HabitatBackend:
             np.asarray(bev_obs["bev_instance"], dtype=np.int32)
             if self.config.enable_instance else None
         )
-        camera_height = float(self.config.scene_value(self.scene_id, "bev_camera_height_m"))
+        camera_height = self.bev_camera_height_above_floor(state.floor_y)
         metric_bev_depth = habitat_orthographic_depth_to_metric(
             bev_depth, self.config.bev_near, self.config.bev_far
         )
         height = (camera_height - metric_bev_depth).astype(np.float32)
-        occupancy = occupancy_from_pathfinder(self.sim.pathfinder, self.mapping, state.floor_y)
+        floor_key = round(float(state.floor_y), 3)
+        if floor_key not in self._occupancy_cache:
+            self._occupancy_cache[floor_key] = occupancy_from_pathfinder(
+                self.sim.pathfinder,
+                self.mapping,
+                state.floor_y,
+                navmesh_bounds=self.navmesh_bounds,
+            )
+        occupancy = self._occupancy_cache[floor_key]
         self._populate_visibility(state, robots)
         return {
             "robots": robots,
@@ -318,6 +468,7 @@ class HabitatBackend:
             "bev_depth": bev_depth,
             "bev_metric_depth": metric_bev_depth,
             "bev_instance": bev_instance,
+            "entity_object_ids": {key: value[0] for key, value in self.render_ids.items()},
             "height": height,
             "occupancy": occupancy,
         }
@@ -327,16 +478,16 @@ class HabitatBackend:
         entities.update({obj.instance_id: obj for obj in state.objects})
         for entity_id, entity in entities.items():
             entity.visibility = {}
-            render_ids = self.render_ids.get(entity_id, ())
+            render_object_id = self.render_ids.get(entity_id, (None, None))[0]
             for observer_id, output in robot_outputs.items():
                 instance = output["instance"]
                 count = 0
-                if instance is not None and render_ids:
-                    count = int(np.isin(instance, render_ids).sum())
+                if instance is not None and render_object_id is not None:
+                    count = int((instance == render_object_id).sum())
                 entity.visibility[observer_id] = {
                     "visible": bool(count > 0),
                     "visible_pixel_count": count,
-                    "method": "semantic_sensor_rigid_id" if instance is not None else "unavailable",
+                    "method": "object_id_sensor" if instance is not None else "unavailable",
                 }
 
     def validate_pinhole_depth_centers(self, state: WorldState, robot_outputs: dict) -> dict:
@@ -367,12 +518,19 @@ class HabitatBackend:
 
     def validate_height_rays(self, state: WorldState, height_map: np.ndarray, samples: int = 12, seed: int = 0) -> dict:
         rng = np.random.default_rng(seed)
-        valid = np.argwhere(np.isfinite(height_map))
+        finite = np.isfinite(height_map)
+        floor_band_m = max(0.03, float(self.config.height_validation_max_error_m))
+        valid = np.argwhere(finite & (np.abs(height_map) <= floor_band_m))
         if len(valid) == 0:
-            return {"available": False, "reason": "no finite orthographic depth"}
+            return {
+                "available": False,
+                "reason": "no rendered pixels match the resolved physical floor",
+            }
         selected = valid[rng.choice(len(valid), size=min(samples, len(valid)), replace=False)]
-        camera_y = state.floor_y + float(self.config.scene_value(self.scene_id, "bev_camera_height_m"))
+        camera_y = state.floor_y + self.bev_camera_height_above_floor(state.floor_y)
         errors = []
+        records = []
+        skipped_nonfloor_collision = 0
         for row, col in selected:
             x, z = self.mapping.bev_to_world(float(col), float(row))
             ray = self.habitat_sim.geo.Ray(
@@ -381,13 +539,30 @@ class HabitatBackend:
             result = self.sim.cast_ray(ray, max_distance=float(self.config.bev_far), buffer_distance=0.0)
             if not result.has_hits():
                 continue
-            ray_height = camera_y - float(result.hits[0].ray_distance) - state.floor_y
-            errors.append(abs(ray_height - float(height_map[row, col])))
+            ray_distance = float(result.hits[0].ray_distance)
+            ray_height = camera_y - ray_distance - state.floor_y
+            if abs(ray_height) > floor_band_m:
+                skipped_nonfloor_collision += 1
+                continue
+            saved_height = float(height_map[row, col])
+            error = abs(ray_height - saved_height)
+            errors.append(error)
+            records.append({
+                "pixel_rc": [int(row), int(col)],
+                "world_xz": [float(x), float(z)],
+                "saved_height_m": saved_height,
+                "render_depth_m": float(camera_y - state.floor_y - saved_height),
+                "physics_ray_distance_m": ray_distance,
+                "absolute_error_m": error,
+            })
         return {
             "available": bool(errors), "sample_count": len(errors),
+            "skipped_nonfloor_collision_rays": skipped_nonfloor_collision,
             "mean_abs_error_m": float(np.mean(errors)) if errors else None,
             "max_abs_error_m": float(np.max(errors)) if errors else None,
-            "note": "render mesh depth compared with physics collision-mesh ray hits",
+            "records": records,
+            "validation_scope": f"physical-floor pixels within {floor_band_m:.3f} m",
+            "note": "floor render depth compared with Bullet downward-ray distance",
         }
 
     def close(self) -> None:

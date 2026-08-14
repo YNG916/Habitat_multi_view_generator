@@ -24,7 +24,7 @@ class ObjectInterventionTests(unittest.TestCase):
         np.testing.assert_allclose(after.object("object_001").position_world, [1.0, 0.3, 0.25])
         np.testing.assert_allclose(after.object("object_001").bbox["min_world"], [0.9, 0.2, 0.15])
 
-    def test_relative_front_uses_xz_relation_and_preserves_support_y(self):
+    def test_relative_front_updates_xz_before_backend_support_resolution(self):
         edit = Intervention("object_place_relative", "object_001", {"reference_id": "robot_01", "relation": "front", "distance_m": 1.0})
         after = apply_intervention(self.state, edit)
         np.testing.assert_allclose(after.object("object_001").position_world, [0.0, 0.3, -1.0])

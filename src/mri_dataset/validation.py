@@ -18,6 +18,7 @@ class ValidationError(RuntimeError):
 
 
 ROBOT_PROXY_REGISTRATION_TOLERANCE_M = 0.35
+DEFAULT_HEIGHT_VALIDATION_MAX_ERROR_M = 0.02
 
 
 def nearest_instance_distance_m(pixels_rc, u, v, mapping):
@@ -36,7 +37,13 @@ def _matrix(item, key):
     return result
 
 
-def validate_state_dir(state_dir: Path, pathfinder=None, tolerance: float = 1e-5, minimum_separation_m: float = 0.0) -> List[str]:
+def validate_state_dir(
+    state_dir: Path,
+    pathfinder=None,
+    tolerance: float = 1e-5,
+    minimum_separation_m: float = 0.0,
+    height_max_error_m: float = DEFAULT_HEIGHT_VALIDATION_MAX_ERROR_M,
+) -> List[str]:
     state_dir = Path(state_dir)
     errors: List[str] = []
     try:
@@ -47,6 +54,18 @@ def validate_state_dir(state_dir: Path, pathfinder=None, tolerance: float = 1e-5
     mapping = BevMapping(
         bev["x_min"], bev["x_max"], bev["z_min"], bev["z_max"], bev["width"], bev["height"]
     )
+    height_validation = bev.get("height_depth_validation", {})
+    if not height_validation.get("available"):
+        errors.append("BEV height validation is unavailable")
+    else:
+        max_error = height_validation.get("max_abs_error_m")
+        if max_error is None or not math.isfinite(float(max_error)):
+            errors.append("BEV height validation has no finite maximum error")
+        elif float(max_error) > height_max_error_m:
+            errors.append(
+                f"BEV height ray error {float(max_error):.6f} m exceeds "
+                f"{height_max_error_m:.6f} m"
+            )
     for robot in metadata["robots"]:
         robot_id = robot["robot_id"]
         base = np.asarray(robot["base_position_world"], dtype=np.float64)
@@ -116,9 +135,16 @@ def validate_state_dir(state_dir: Path, pathfinder=None, tolerance: float = 1e-5
             annotated = np.asarray(Image.open(state_dir / bev["files"]["annotated"]).convert("RGB"))
             if bev_instance.shape != (mapping.height, mapping.width):
                 errors.append("BEV instance: invalid shape")
+            if bev.get("instance_id_encoding") != "Habitat SemanticSensorTarget.OBJECT_ID":
+                errors.append("BEV instance channel is not declared as Habitat OBJECT_ID")
+            entity_object_ids = bev.get("entity_object_ids", {})
             for index, robot in enumerate(metadata["robots"]):
                 u, v = mapping.world_to_bev(robot["base_position_world"][0], robot["base_position_world"][2])
-                pixels = np.argwhere(bev_instance == int(robot["proxy_semantic_id"]))
+                object_id = entity_object_ids.get(robot["robot_id"])
+                if object_id is None:
+                    errors.append(f"{robot['robot_id']}: missing runtime OBJECT_ID mapping")
+                    continue
+                pixels = np.argwhere(bev_instance == int(object_id))
                 if len(pixels):
                     nearest_m = nearest_instance_distance_m(pixels, u, v, mapping)
                     if nearest_m > ROBOT_PROXY_REGISTRATION_TOLERANCE_M:
@@ -162,9 +188,28 @@ def validate_dataset(root: Path, config=None) -> Dict[str, object]:
             scene_id = state_json.parents[2].name
             pathfinder = backends[scene_id].sim.pathfinder if scene_id in backends else None
             errors = validate_state_dir(
-                state_json.parent, pathfinder,
+                state_json.parent,
+                pathfinder,
                 minimum_separation_m=config.min_inter_robot_distance_m if config else 0.0,
+                height_max_error_m=(
+                    config.height_validation_max_error_m
+                    if config else DEFAULT_HEIGHT_VALIDATION_MAX_ERROR_M
+                ),
             )
+            if config is not None:
+                from .state_io import load_world_state
+                world_state = load_world_state(state_json.parent)
+                for obj in world_state.objects:
+                    if not obj.active:
+                        continue
+                    collision = backends[scene_id].object_collision_report(
+                        world_state, obj.instance_id
+                    )
+                    if not collision["collision_free"]:
+                        errors.append(
+                            f"{obj.instance_id}: static-scene collision "
+                            f"{collision['rejected_contacts']}"
+                        )
             if errors:
                 report["errors"][str(state_json.parent.relative_to(root))] = errors
         for edit_path in sorted(root.glob("interventions/*/edit_*.json")):

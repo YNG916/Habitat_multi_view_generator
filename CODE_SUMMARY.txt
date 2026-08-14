@@ -131,6 +131,10 @@ tests/
     near = 0.05 m
     far = 20 m
 
+说明：
+    这是正式数据集的高清默认档。快速正确性测试使用
+    configs/collector_pilot.json（768 x 768）。
+
 相机高度：
     camera_height_min_m = 0.4
     camera_height_max_m = 1.4
@@ -152,20 +156,28 @@ tests/
 BEV：
     bev_meters_per_pixel = 0.00625
     bev_camera_height_m = 2.2
+    bev_ceiling_clearance_m = 0.15
     bev_near = 0.02
     bev_far = 10
+    height_validation_samples = 24
+    height_validation_max_error_m = 0.02
+    collision_penetration_tolerance_m = 0.002
+    support_contact_tolerance_m = 0.005
 
-在 apt_1 中，默认 BEV 实际约为 1163 x 2083，实际米/像素值会根据
-场景边界和整数分辨率重新计算并写入 state.json。
+在 apt_1 中，默认视觉 BEV 实测为 1163 x 2091；最终尺寸由 rendered scene
+AABB 和整数分辨率决定。NavMesh bounds 与视觉 bounds 分开写入元数据。
 
 实例和 proxy：
     enable_instance = true
     enable_robot_proxies = true
 
-机器人 semantic ID：
+机器人保留 semantic ID：
     robot_01 = 1001
     robot_02 = 1002
     robot_03 = 1003
+
+instance.npy 不使用这些 semantic ID，而是显式使用 Habitat OBJECT_ID；
+每个状态的 entity -> runtime object ID 映射写入 state.json。
 
 受控物体白名单：
     cup  -> frl_apartment_cup_01.object_config.json
@@ -409,12 +421,17 @@ aabb_dict(aabb, transform)
     将局部 AABB 的 8 个角变换到世界坐标，再计算世界 AABB。
 
 controlled_object_collision_free(...)
-    检查：
+    先做快速几何检查：
     - 对象 active 状态
     - AABB 是否存在
-    - 是否离开场景边界
+    - 是否离开视觉场景边界
     - 是否离机器人过近
     - 是否与其他受控对象 AABB 重叠
+
+随后 HabitatBackend.object_collision_report(...) 会将目标物体临时设为
+dynamic，只执行 Bullet 离散碰撞检测而不推进时间，从而检查墙、沙发、
+桌子、柜子、静态家具、机器人 proxy 和其他刚体。仅容忍阈值内的垂直
+地板支撑接触。
 
 
 八、BEV
@@ -448,12 +465,15 @@ meters_per_pixel_x / meters_per_pixel_z
     最终实际像素尺度。
 
 habitat_orthographic_depth_to_metric(...)
-    修正 Habitat-Sim 0.3.3 对正交深度使用透视式反投影的问题，
-    将原始正交 depth 恢复为米制深度。
+    Habitat-Sim 0.3.3 在读回前会执行通用 depth unprojection，但该通用
+    过程对 orthographic projection 返回 reciprocal pseudo-depth，而不是
+    线性米制距离。本函数使用 near/far 线性化；真实 Habitat integration
+    test 用 Bullet downward ray 作为非循环 oracle 验证结果。
 
 occupancy_from_pathfinder(...)
-    对每个 BEV 像素中心执行 pathfinder.is_navigable，
-    生成 uint8 occupancy。
+    调用 Habitat 的 C++ PathFinder.get_topdown_view() 一次生成 NavMesh
+    栅格，再按世界 X/Z 注册到视觉 BEV bounds。后端按 scene/floor 缓存
+    occupancy，不再为每个 state 执行数百万次 Python is_navigable 调用。
 
 annotate_bev(...)
     绘制机器人位置、颜色、朝向、FOV 和相机高度。
@@ -489,29 +509,31 @@ WorldState 是状态源；Habitat 只负责：
 ------
 1. 检查 scene dataset config。
 2. 检查当前场景的显式 navmesh。
-3. 使用独立 PathFinder 预加载 navmesh 和场景边界。
-4. 根据边界构造 BevMapping。
-5. 生成过滤后的临时 scene dataset config：
+3. 使用独立 PathFinder 预加载 navmesh，保存 navmesh_bounds。
+4. 创建无传感器 probe Simulator，读取完整 rendered scene AABB。
+5. 使用 render_bev_bounds 构造视觉 BevMapping；NavMesh bounds 仅用于
+   navigability 和 occupancy 注册。
+6. 生成过滤后的临时 scene dataset config：
    - 删除本机未安装的可选 Fetch URDF。
    - 删除文件不存在的 navmesh 条目。
    - 原始 ReplicaCAD 配置不被修改。
    - 后端关闭时删除临时配置。
-6. 创建 Habitat Simulator。
-7. 再次显式加载当前场景 navmesh。
-8. 加载机器人 proxy 模板。
-9. 解析可控物体白名单。
+7. 按视觉 bounds 创建正式 Habitat Simulator。
+8. 再次显式加载当前场景 navmesh。
+9. 加载机器人 proxy 模板。
+10. 解析可控物体白名单。
 
 传感器
 ------
 每个机器人 agent：
     RGB pinhole
     depth pinhole
-    semantic/instance pinhole
+    OBJECT_ID instance pinhole
 
 额外 BEV agent：
     RGB orthographic
     depth orthographic
-    semantic/instance orthographic
+    OBJECT_ID instance orthographic
 
 当前共有：
     Agent 0 = Robot 1
@@ -529,8 +551,9 @@ apply_world_state(state)
 3. 设置不可见 Habitat agent 的相机状态。
 4. 生成可见的 kinematic 机器人 proxy。
 5. 生成 active 的受控物体。
-6. 将 BEV 相机放到场景中心和 floor_y + BEV height。
-7. BEV 相机旋转为垂直向下。
+6. 校验 BEV 高度低于 scene AABB 顶部并保留 ceiling clearance。
+7. 将 BEV 相机放到视觉场景中心和 floor_y + BEV height。
+8. BEV 相机旋转为垂直向下。
 
 机器人为什么分 agent 和 proxy：
     Habitat agent 只作为相机，不会自动出现在其他机器人的 RGB 中。
@@ -543,6 +566,20 @@ create_object_state(...)
 refresh_object_bboxes(...)
     WorldState 应用后，从 Habitat 查询权威碰撞 AABB 并转到世界坐标。
 
+floor_surface_y(...)
+    从 NavMesh 点上方向下发射物理 ray，解析真实地板表面 Y。机器人 base、
+    WorldState.floor_y 和受控物体底面都使用该物理高度，而不是可能偏高的
+    NavMesh polygon Y。
+
+support_object_on_floor(...)
+    在 Level-2 相对放置后重新读取目标模板 collision AABB，并按目标 XZ
+    下方真实地板 Y 重建物体支撑高度，避免浮空或陷地。
+
+object_collision_report(...)
+    应用完整 WorldState 后执行 Bullet 离散接触检测，返回碰撞对象、
+    穿透深度和接触位置。目标临时设为 dynamic，以覆盖 kinematic 与
+    kinematic/static 的重叠。
+
 render(state)
 -------------
 1. apply_world_state。
@@ -552,8 +589,9 @@ render(state)
 5. 转换 BEV 正交深度。
 6. 计算：
        height = BEV camera height - metric depth
-7. 计算 occupancy。
-8. 统计每个实体在每个机器人实例图中的可见像素。
+7. 首次遇到 scene/floor 时计算并缓存 occupancy，后续 state 直接复用。
+8. 用 OBJECT_ID 统计每个实体在每个机器人实例图中的可见像素。
+9. 返回当前 state 的 entity_object_ids 映射供序列化。
 
 输出：
     robots[robot_id].rgb
@@ -570,7 +608,10 @@ validate_pinhole_depth_centers(...)
     将每个相机中心像素 Z-depth 与正前方物理射线命中距离比较。
 
 validate_height_rays(...)
-    随机采样 BEV height 像素，用垂直向下物理射线比较渲染高度和碰撞高度。
+    从渲染高度接近 0 的真实地板像素采样，并只比较 Bullet ray 同样命中
+    地板的点。这样避免 render mesh 与 collision-only 家具几何差异造成
+    误报。最大误差必须 <= 0.02 m，否则状态不允许保存；逐射线记录写入
+    state.json。
 
 close()
     关闭 Simulator，并删除临时过滤配置。
@@ -827,7 +868,10 @@ validate_state_dir(...)
     - BEV height shape/dtype
     - BEV occupancy shape/dtype
     - BEV instance shape
-    - 对象底部与 floor 对齐
+    - instance channel 明确声明 OBJECT_ID
+    - entity_object_ids 映射存在且与 BEV 注册
+    - height ray validation 可用且最大误差 <= 0.02 m
+    - 对象底部与真实 floor 对齐
 
 BEV 机器人注册
 --------------
@@ -849,9 +893,10 @@ validate_dataset(...)
     1. 扫描全部状态。
     2. 每个 scene 只创建一个 HabitatBackend。
     3. 使用真实 PathFinder 验证。
-    4. 检查 Level-2 robot_translate 的精确位移。
-    5. 检查 Level-2 object_translate 的精确位移。
-    6. 返回：
+    4. 重新加载每个 WorldState，对 active 受控物体执行 Bullet 碰撞回验。
+    5. 检查 Level-2 robot_translate 的精确位移。
+    6. 检查 Level-2 object_translate 的精确位移。
+    7. 返回：
        root
        states_checked
        errors
@@ -1141,7 +1186,7 @@ conda run -n habitat python scripts/inspect_scene.py \
 -------------------
 
 conda run -n habitat python scripts/collect_level1.py \
-  --config configs/collector.json \
+  --config configs/collector_pilot.json \
   --scene apt_1 \
   --num-states 10 \
   --output-root outputs/uhd_pilot
@@ -1151,7 +1196,7 @@ conda run -n habitat python scripts/collect_level1.py \
 
 conda run -n habitat python scripts/validate_dataset.py \
   --root outputs/uhd_pilot \
-  --config configs/collector.json
+  --config configs/collector_pilot.json
 
 6. 生成检查图
 -------------
@@ -1275,23 +1320,29 @@ num-states 表示每个场景生成的状态数。
 4. Level-2 CLI 的干预距离和目标是代码内预设，不是独立命令行参数。
 5. --num-edits-per-state 当前表示本次命令总 edit 数。
 6. Level-1 不能在同一个 root 上覆盖或直接续跑已有 state ID。
-7. 2K 数据体积很大。
+7. 正式默认配置为 2048；768 pilot 配置仅用于快速验证。高清数据会产生
+   很大的数据体积。
 8. FOV overlap 是二维几何近似，不考虑墙体遮挡。
-9. 场景没有完整原生 semantic scene；机器人和受控物体使用显式 semantic ID。
-10. Habitat 仍可能打印 empty_stage handle 和无原生语义标注 Warning，
-    但不影响 apt_1 RGB-D、显式实例 ID 或验证。
+9. 场景没有完整原生 semantic scene；instance 通道不依赖它，而是显式
+   使用 Habitat OBJECT_ID。semantic_id 字段仍保留作类别/兼容元数据。
+10. 视觉 BEV 是低于 ceiling 的 interior top-down cutaway；每个新场景
+    必须配置安全高度，无法通过 clearance 检查会直接拒绝。
+11. Habitat 仍可能打印 empty_stage handle 和无原生语义标注 Warning，
+    但不影响 apt_1 RGB-D、OBJECT_ID 或验证。
 
 
 二十四、存储估算
 ============================================================
 
-2K 默认模式每个状态约 120–140 MB。
-
-大致规模：
+默认正式配置为 2048，实际大小取决于 PNG 压缩、场景视觉 bounds 和有效
+深度内容。正式估算应先对 50–100 条样本运行 du。2048 模式可能达到：
     10 状态      约 1.2–1.4 GB
     100 状态     约 12–14 GB
     1000 状态    约 120–140 GB
     1500 状态    约 180–210 GB
+
+configs/collector_pilot.json 的 768 模式显著更小，适合先验证流程，不建议
+将其作为最终训练数据。
 
 Level-2 的每个 after-state 会保存完整 RGB/depth/instance/BEV，因此空间与
 Level-1 状态接近。
@@ -1309,8 +1360,16 @@ Pilot：
 Contact sheets：
     10 张成功生成。
 
-单元测试：
-    12 / 12 通过。
+测试：
+    15 / 15 通过，其中 2 个是真实 Habitat integration tests：
+    - orthographic depth/height + Bullet downward ray + OBJECT_ID
+    - controlled object 与 robot proxy 重叠的 Bullet collision reject
+
+临时端到端 Pilot：
+    2 条 Level-1 + 1 条 object_place_relative Level-2 after-state
+    states_checked = 3
+    errors = {}
+    passed = true
 
 BEV 修复：
     旧的固定 3 px 阈值已替换为 0.35 m 米制 footprint 容差。
