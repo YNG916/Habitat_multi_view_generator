@@ -1,0 +1,57 @@
+{
+  "scene_id": "apt_1",
+  "coordinate_convention": {
+    "world_up": "+Y",
+    "camera_forward": "-Z"
+  },
+  "robots": [
+    {
+      "robot_id": "robot_01",
+      "base_position_world": [
+        -0.558784008026123,
+        0.11937291920185089,
+        2.502380847930908
+      ],
+      "camera_position_world": [
+        -0.558784008026123,
+        0.7193729281425476,
+        2.502380847930908
+      ],
+      "camera_height_m": 0.6,
+      "yaw_rad": 0.0,
+      "yaw_deg": 0.0
+    },
+    {
+      "robot_id": "robot_02",
+      "base_position_world": [
+        0.25762394070625305,
+        0.11937291920185089,
+        3.131887912750244
+      ],
+      "camera_position_world": [
+        0.25762394070625305,
+        1.0193729400634766,
+        3.131887912750244
+      ],
+      "camera_height_m": 0.9,
+      "yaw_rad": 1.5707963267948966,
+      "yaw_deg": 90.0
+    },
+    {
+      "robot_id": "robot_03",
+      "base_position_world": [
+        3.1363348960876465,
+        0.11937291920185089,
+        3.8737664222717285
+      ],
+      "camera_position_world": [
+        3.1363348960876465,
+        1.3193728923797607,
+        3.8737664222717285
+      ],
+      "camera_height_m": 1.2,
+      "yaw_rad": -1.5707963267948966,
+      "yaw_deg": -90.0
+    }
+  ]
+}

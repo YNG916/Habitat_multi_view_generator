@@ -1,0 +1,18 @@
+# Multi-Robot World-Imagination Dataset Generator
+
+This repository contains a Habitat-Sim 0.3.3 pipeline whose source of truth is a serializable `WorldState`. Both Level 1 states and Level 2 counterfactual after-states pass through the same Habitat renderer. Habitat agents are invisible camera rigs; separately spawned colored kinematic proxies make robots visible to one another.
+
+The frozen geometry convention is right-handed Habitat world coordinates (`+Y` up, ground `X-Z`, zero-yaw forward `-Z`). BEV right is `+X` and BEV up is `-Z`. Metadata stores xyzw quaternions, Habitat and OpenCV camera transforms, calibrated pinhole intrinsics, actual BEV pixel scale, and relative file paths.
+
+Run from this directory with the existing `habitat` environment:
+
+```bash
+conda run -n habitat python -m unittest discover -s tests -v
+conda run -n habitat python scripts/debug_world_state.py --scene apt_1 --seed 123
+conda run -n habitat python scripts/collect_level1.py --config configs/collector.json --num-states 10
+conda run -n habitat python scripts/collect_level2.py --config configs/collector.json --root outputs/mri_dataset --type robot_translate
+conda run -n habitat python scripts/validate_dataset.py --root outputs/mri_dataset
+conda run -n habitat python scripts/make_contact_sheet.py --root outputs/mri_dataset --num-samples 10
+```
+
+`scripts/list_object_templates.py` reports installed handles; collection uses only the whitelist in `configs/collector.json`. Missing traditional ReplicaCAD semantic annotations do not block RGB-D, BEV, or state generation. The `instance.npy` channel is best-effort for rigid controlled entities and robot proxies.
