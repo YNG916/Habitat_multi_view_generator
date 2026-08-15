@@ -1,0 +1,181 @@
+HSSD-ONLY 实现总结
+生成日期：2026-08-15
+
+一、结论
+仓库正式采集路径已经从 ReplicaCAD 完全迁移到标准 HSSD。
+唯一允许的数据集配置是：
+data/scene_datasets/hssd-hab/hssd-hab.scene_dataset_config.json
+
+不允许：
+- ReplicaCAD 配置或 apt_* 场景
+- hssd-hab-uncluttered
+- hssd-hab-articulated
+- 缺失 HSSD 时自动 fallback
+- 运行时生成临时过滤版 scene_dataset_config
+- 手工按场景设置 BEV 高度
+
+二、新增核心文件
+src/mri_dataset/scene_registry.py
+- SceneSpec/FloorSpec 持久注册表
+- 官方 HSSD split 解析
+- 官方 train 90/10 -> 正式 train/internal val
+- 官方 val -> 正式 test
+- scene_id 级防泄漏
+
+src/mri_dataset/hssd_preprocess.py
+- 标准 HSSD 场景发现
+- 按机器人尺寸重算、缓存并哈希 NavMesh
+- 多楼层和 NavMesh island 发现
+- 楼层局部 navigable/visual BEV bounds
+- Bullet 向上射线选择 BEV 相机高度
+- RGB/depth 低分辨率预检
+- SHA256 一致时断点复用
+
+scripts/preprocess_hssd.py
+scripts/preprocess_hssd_parallel.py
+scripts/build_hssd_object_registry.py
+scripts/inspect_hssd_scene.py
+configs/collector_hssd_smoke.json
+configs/collector_hssd.json
+configs/hssd_controlled_objects.json
+configs/hssd_preprocess_overrides.json
+tests/test_hssd_registry.py
+
+三、主要修改文件
+src/mri_dataset/config.py
+- HSSD-only 校验
+- registry/manifest 驱动场景
+- 正式高清参数
+- 机器人专用 NavMesh 参数
+- 精确 HSSD object handle
+
+src/mri_dataset/habitat_backend.py
+- SceneSpec/FloorSpec 驱动
+- 校验 NavMesh settings fingerprint 和文件 SHA256
+- 不再探测/改写数据集配置
+- 楼层局部 BEV
+- exact handle，不做 suffix 猜测
+- WorldState scene/floor/source 一致性检查
+
+src/mri_dataset/collector.py
+src/mri_dataset/level2.py
+src/mri_dataset/validation.py
+- 输出和 replay 都按 scenes/<scene>/floors/<floor> 隔离
+- split 单位改为 hssd_scene_id
+- Level 1/2 都记录 floor_id
+- 全验证按 scene/floor 重建 backend
+
+src/mri_dataset/sampling.py
+src/mri_dataset/bev.py
+- 仅在允许岛上采样
+- occupancy 仅合并当前楼层允许岛
+
+src/mri_dataset/world_state.py
+src/mri_dataset/state_io.py
+src/mri_dataset/serialization.py
+- 新增 dataset_source 和 floor_id
+- 保存楼层、允许岛、semantic/instance、贴地和几何校验
+
+src/mri_dataset/calibration.py
+- 正交深度标定改为 scene_id=NONE，不依赖 HSSD 或其他数据集
+
+四、清理内容
+已删除：
+configs/collector.json
+configs/collector_formal_smoke.json
+scripts/inspect_scene.py
+scripts/list_object_templates.py
+
+未删除 outputs_replica_cad/：它在本次修改前已是用户的未跟踪目录，未擅自处理。
+
+五、正式参数
+机器人：
+diameter=0.46 m
+body_height=0.107 m
+camera_height=0.15 m（固定）
+camera_forward_offset=0.235 m
+
+NavMesh：
+agent_radius=0.28 m
+agent_height=0.20 m
+max_climb=0.05 m
+max_slope=20 deg
+include_static_objects=true
+
+高清 smoke：
+robot RGB/depth/instance/semantic=768x768
+BEV=0.02 m/px
+
+正式：
+robot RGB/depth/instance/semantic=2048x2048
+BEV=0.00625 m/px
+
+六、真实 HSSD 集成结果
+集成场景：
+train: 102344022/floor_00
+internal val: 102344307/floor_00
+test: 102344094/floor_00
+
+全量预处理：
+scenes_total=168
+scenes_eligible=125
+scenes_rejected=43
+floors_total=238
+floors_eligible=127
+floors_rejected=111
+正式 train/internal-val/test 合格场景=83/9/33
+正式可生成 scene/floor 总数=127
+拒绝原因计数：
+ambiguous_overlapping_multifloor_geometry=102
+floor_navigable_area_too_small=53
+no_eligible_floor=43
+
+三 split 真实高清 smoke：
+outputs/mri_hssd_smoke_hd_all_splits
+factual states=3
+derived states=5
+interventions=5
+Level 1 train/val/test rejections=0/1/2
+Level 2 train/val/test rejections=0/0/1
+full validation passed=true
+states_checked=8
+validation error groups=0
+
+三个场景实际 smoke 尺寸：
+102344022 robot=768x768, BEV=1135x880
+102344307 robot=768x768, BEV=941x910
+102344094 robot=768x768, BEV=455x394
+BEV 约 0.02 m/px
+
+机器人贴地：
+三个机器人 support_gap 绝对值约 6.6e-8 m
+proxy/base origin offset 绝对值约 1.5e-12 m
+
+正交深度独立标定：
+4 个高度 0.2/0.5/1.0/1.5 m
+最大误差约 5.96e-7 m
+阈值 0.03 m
+passed=true
+
+全部 unittest：
+Ran 37 tests
+OK
+
+七、真实 HSSD 受控物体
+注册表只选择 HSSD 原生真实 mesh，类别：
+cup, bowl, book, bottle, box
+运行时使用完整精确 handle；不存在时立即报错，不做 suffix fallback。
+
+八、全量运行顺序
+1. 完成官方 hssd-hab LFS 下载。
+2. python scripts/build_hssd_object_registry.py --config configs/collector_hssd.json
+3. python scripts/preprocess_hssd.py --config configs/collector_hssd.json
+4. 用 configs/collector_hssd_smoke.json 跑三 split 高清 smoke。
+5. 检查 registry 统计、预览图、磁盘空间。
+6. python scripts/generate_dataset.py --config configs/collector_hssd.json --stage all --validation full
+
+九、已知边界
+- 官方 HSSD LFS 下载已经完整结束，168 个场景已全部预处理并进入 registry。
+- 43 个上下楼层 XZ 投影明显重叠的场景被保守拒绝；没有把含糊楼层混入正式数据。
+- semantic.npz 的范围是生成器受控实体；HSSD 原生背景为 0，不伪造房间级语义。
+- 多楼层且上下楼层 XZ 高度投影严重重叠时会保守拒绝，避免 BEV 被其他楼层遮挡。

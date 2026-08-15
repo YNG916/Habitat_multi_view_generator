@@ -1,0 +1,14 @@
+{
+  "scene_id": "v3_sc0_staging_00",
+  "target_states": 1,
+  "new_states": 1,
+  "resumed_states": 0,
+  "rejections": 4,
+  "rejection_reasons": {
+    "ValueError: robot_01 proxy collision [{'other_object_id': 9, 'penetration_m': 0.010182390920817852, 'target_contact_world': [3.30133056640625, 0.015343417413532734, 1.2581861019134521]}]": 1,
+    "ValueError: robot_01 proxy collision [{'other_object_id': 9, 'penetration_m': 0.010182579047977924, 'target_contact_world': [2.9032516479492188, 0.015343106351792812, 0.4836920499801636]}]": 1,
+    "ValueError: robot_01 proxy collision [{'other_object_id': 9, 'penetration_m': 0.010181424207985401, 'target_contact_world': [3.309785842895508, 0.015343417413532734, 1.1303499937057495]}]": 1,
+    "ValueError: robot_02 proxy collision [{'other_object_id': 9, 'penetration_m': 0.010182533413171768, 'target_contact_world': [3.1861844062805176, 0.015343285165727139, 1.2781434059143066]}]": 1
+  },
+  "complete": true
+}

@@ -26,16 +26,40 @@ def sample_robot_positions(
     min_inter_robot_distance_m: float,
     local_sampling_radius_m: float,
     floor_tolerance_m: float,
+    allowed_island_ids=None,
+    representative_floor_y=None,
     max_tries: int = 1000,
 ) -> List[np.ndarray]:
     pathfinder.seed(int(rng.integers(0, 2**31 - 1)))
+    allowed = (
+        sorted(map(int, allowed_island_ids))
+        if allowed_island_ids is not None
+        else list(range(int(pathfinder.num_islands)))
+    )
+    if not allowed:
+        raise ValueError("No allowed NavMesh islands for the selected floor")
+    areas = np.asarray([pathfinder.island_area(index) for index in allowed], dtype=np.float64)
+    probabilities = areas / areas.sum()
     anchor = None
     for _ in range(max_tries):
-        candidate = np.asarray(pathfinder.get_random_navigable_point(), dtype=np.float64)
+        island_id = allowed[int(rng.choice(len(allowed), p=probabilities))]
+        candidate = np.asarray(
+            pathfinder.get_random_navigable_point(100, island_id), dtype=np.float64
+        )
         if not np.all(np.isfinite(candidate)):
             continue
-        floor_y = float(candidate[1])
-        if _valid_position(pathfinder, candidate, floor_y, min_obstacle_distance_m, floor_tolerance_m):
+        floor_y = (
+            float(candidate[1])
+            if representative_floor_y is None
+            else float(representative_floor_y)
+        )
+        if (
+            int(pathfinder.get_island(candidate)) in allowed
+            and _valid_position(
+                pathfinder, candidate, floor_y,
+                min_obstacle_distance_m, floor_tolerance_m,
+            )
+        ):
             anchor = candidate
             break
     if anchor is None:
@@ -45,10 +69,19 @@ def sample_robot_positions(
     for robot_index in range(1, num_robots):
         for _ in range(max_tries):
             point = np.asarray(
-                pathfinder.get_random_navigable_point_near(anchor, local_sampling_radius_m, 100, island),
+                pathfinder.get_random_navigable_point(100, island),
                 dtype=np.float64,
             )
-            if not _valid_position(pathfinder, point, float(anchor[1]), min_obstacle_distance_m, floor_tolerance_m):
+            if (
+                not np.all(np.isfinite(point))
+                or np.linalg.norm(point[[0, 2]] - anchor[[0, 2]])
+                > local_sampling_radius_m
+            ):
+                continue
+            if not _valid_position(
+                pathfinder, point, float(anchor[1]),
+                min_obstacle_distance_m, floor_tolerance_m,
+            ):
                 continue
             if int(pathfinder.get_island(point)) != island:
                 continue

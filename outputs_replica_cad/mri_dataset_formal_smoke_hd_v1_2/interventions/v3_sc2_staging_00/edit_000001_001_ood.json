@@ -1,0 +1,57 @@
+{
+  "schema_version": "1.0.0",
+  "edit_id": "edit_000001_001_ood",
+  "scene_id": "v3_sc2_staging_00",
+  "split": "val",
+  "benchmark_regime": "ood",
+  "protocol_version": "mri-formal-v1.2",
+  "before_state_id": "state_000001",
+  "before_state_path": "scenes/v3_sc2_staging_00/states/state_000001",
+  "after_state_id": "state_after_000001_001_ood",
+  "after_state_path": "scenes/v3_sc2_staging_00/states/state_after_000001_001_ood",
+  "structured_intervention": {
+    "type": "object_place_relative",
+    "target_id": "object_001",
+    "reference_id": "robot_01",
+    "reference_frame": "reference_robot",
+    "relation": "front",
+    "distance_m": 1.5
+  },
+  "instruction": "Move the bowl 1.5 meters in front of Robot 1.",
+  "instruction_paraphrases": [],
+  "mllm_generated": false,
+  "human_verified": false,
+  "sampling": {
+    "slot": 1,
+    "attempt": 0,
+    "seed": 4250628891,
+    "recovered_after_interruption": false
+  },
+  "target_visible_observers_before": 1,
+  "visibility_transition": {
+    "robot_01": {
+      "before_visible": false,
+      "after_visible": true,
+      "before_benchmark_visible": false,
+      "after_benchmark_visible": true,
+      "before_visible_pixel_count": 0,
+      "after_visible_pixel_count": 21554
+    },
+    "robot_02": {
+      "before_visible": false,
+      "after_visible": true,
+      "before_benchmark_visible": false,
+      "after_benchmark_visible": true,
+      "before_visible_pixel_count": 0,
+      "after_visible_pixel_count": 164525
+    },
+    "robot_03": {
+      "before_visible": true,
+      "after_visible": true,
+      "before_benchmark_visible": true,
+      "after_benchmark_visible": true,
+      "before_visible_pixel_count": 5524,
+      "after_visible_pixel_count": 139658
+    }
+  }
+}

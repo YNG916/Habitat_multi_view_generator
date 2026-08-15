@@ -1,0 +1,14 @@
+{
+  "scene_id": "v3_sc1_staging_00",
+  "target_states": 1,
+  "new_states": 1,
+  "resumed_states": 0,
+  "rejections": 4,
+  "rejection_reasons": {
+    "RuntimeError: Factual state has no benchmark-visible object intervention target": 1,
+    "RuntimeError: Factual state has no benchmark-visible robot intervention target": 1,
+    "ValueError: robot_01 proxy collision [{'other_object_id': 9, 'penetration_m': 0.010115543380379677, 'target_contact_world': [0.8047630786895752, 0.015409233048558235, 1.7600075006484985]}]": 1,
+    "ValueError: robot_02 proxy collision [{'other_object_id': 0, 'penetration_m': 0.0021725031547248363, 'target_contact_world': [0.19543832540512085, 0.015415848232805729, 1.5282814502716064]}]": 1
+  },
+  "complete": true
+}

@@ -1,0 +1,11 @@
+{
+  "scene_id": "v3_sc0_staging_00",
+  "target_states": 1,
+  "new_states": 1,
+  "resumed_states": 0,
+  "rejections": 1,
+  "rejection_reasons": {
+    "ValueError: robot_03 proxy collision [{'other_object_id': 13, 'penetration_m': 0.01844686269760132, 'target_contact_world': [1.628288984298706, 0.015422987751662731, 6.221707820892334]}]": 1
+  },
+  "complete": true
+}

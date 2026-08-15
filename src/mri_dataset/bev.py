@@ -104,6 +104,7 @@ def occupancy_from_pathfinder(
     mapping: BevMapping,
     floor_y: float,
     navmesh_bounds=None,
+    allowed_island_ids=None,
 ) -> np.ndarray:
     """Rasterize NavMesh in C++ and register it to the visual BEV.
 
@@ -115,10 +116,24 @@ def occupancy_from_pathfinder(
     nav_low = np.asarray(navmesh_bounds[0], dtype=np.float64)
     nav_high = np.asarray(navmesh_bounds[1], dtype=np.float64)
     native_mpp = min(mapping.meters_per_pixel_x, mapping.meters_per_pixel_z)
-    native = np.asarray(
-        pathfinder.get_topdown_view(float(native_mpp), float(floor_y)),
-        dtype=np.uint8,
-    )
+    if allowed_island_ids is None:
+        native = np.asarray(
+            pathfinder.get_topdown_view(float(native_mpp), float(floor_y)),
+            dtype=np.uint8,
+        )
+    else:
+        island_views = [
+            np.asarray(
+                pathfinder.get_topdown_island_view(
+                    float(native_mpp), float(floor_y), int(island_id)
+                ),
+                dtype=np.uint8,
+            )
+            for island_id in allowed_island_ids
+        ]
+        if not island_views:
+            raise ValueError("Floor-local occupancy requires at least one island")
+        native = np.maximum.reduce(island_views)
     occupancy = np.zeros((mapping.height, mapping.width), dtype=np.uint8)
     if native.ndim != 2 or 0 in native.shape:
         return occupancy

@@ -1,0 +1,18 @@
+{
+  "scene_id": "v3_sc2_staging_00",
+  "split": "val",
+  "regimes": [
+    "id",
+    "ood"
+  ],
+  "factual_states": 1,
+  "target_edits_per_state_per_regime": 1,
+  "new_edits": 2,
+  "resumed_edits": 0,
+  "recovered_edits": 0,
+  "rejections": 1,
+  "rejection_reasons": {
+    "ValueError: Robot intervention swept path intersects a controlled object": 1
+  },
+  "complete": true
+}

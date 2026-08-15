@@ -1,113 +1,111 @@
 from __future__ import annotations
 
 import math
-from dataclasses import replace
-
 import numpy as np
 
-from .bev import habitat_orthographic_depth_to_metric
+from .bev import BevMapping, habitat_orthographic_depth_to_metric
 from .config import REPO_ROOT
-from .habitat_backend import HabitatBackend
 from .objects import handles_by_suffix
 
-
-CALIBRATION_HEIGHTS_M = (0.2, 0.5, 1.0, 1.5)
-CALIBRATION_X_M = (-1.5, -0.5, 0.5, 1.5)
+CALIBRATION_HEIGHTS_M = (.2, .5, 1., 1.5)
+CALIBRATION_X_M = (-1.5, -.5, .5, 1.5)
 
 
 def validate_multilevel_orthographic_depth(config) -> dict:
-    """Run a real Habitat render/Bullet regression at four known heights."""
-    scene_id = "empty_stage"
-    calibration_config = replace(
-        config,
-        scenes=[scene_id],
-        scene_splits={"train": [scene_id], "val": [], "test": []},
-        scene_overrides={scene_id: {"bev_camera_height_m": 2.2}},
-        bev_meters_per_pixel=max(float(config.bev_meters_per_pixel), 0.01),
+    """Dataset-independent Habitat-Sim v0.3.3 orthographic-depth regression."""
+    import habitat_sim
+    from habitat_sim.utils.common import quat_from_angle_axis
+
+    mapping = BevMapping.from_bounds(
+        np.array([-2., 0., -1.]), np.array([2., 2., 1.]), .01
     )
-    backend = HabitatBackend(calibration_config, scene_id)
+    spec = habitat_sim.CameraSensorSpec()
+    spec.uuid = "calibration_depth"
+    spec.sensor_type = habitat_sim.SensorType.DEPTH
+    spec.sensor_subtype = habitat_sim.SensorSubType.ORTHOGRAPHIC
+    spec.resolution = [mapping.height, mapping.width]
+    spec.position = [0., 0., 0.]
+    spec.orientation = [0., 0., 0.]
+    spec.near = float(config.bev_near)
+    spec.far = float(config.bev_far)
+    spec.ortho_scale = 1. / (mapping.x_max - mapping.x_min)
+    agent = habitat_sim.agent.AgentConfiguration()
+    agent.sensor_specifications = [spec]
+    simulator = habitat_sim.SimulatorConfiguration()
+    simulator.scene_id = "NONE"
+    simulator.enable_physics = True
+    simulator.gpu_device_id = int(config.gpu_device_id)
+    sim = habitat_sim.Simulator(habitat_sim.Configuration(simulator, [agent]))
     try:
         asset_dir = REPO_ROOT / "assets/calibration"
-        manager = backend.sim.get_object_template_manager()
-        loaded = manager.load_configs(str(asset_dir))
-        if not loaded:
-            raise RuntimeError("Could not load multi-height calibration object")
-        suffix = "multilevel_slabs.object_config.json"
-        handle = handles_by_suffix(manager, [suffix])[suffix]
-        rigid = backend.sim.get_rigid_object_manager().add_object_by_template_handle(
-            handle
-        )
+        manager = sim.get_object_template_manager()
+        if not manager.load_configs(str(asset_dir)):
+            raise RuntimeError("Could not load calibration object")
+        handle = handles_by_suffix(
+            manager, ["multilevel_slabs.object_config.json"]
+        )["multilevel_slabs.object_config.json"]
+        rigid = sim.get_rigid_object_manager().add_object_by_template_handle(handle)
         if rigid is None:
-            raise RuntimeError("Could not instantiate multi-height calibration object")
-        rigid.motion_type = backend.habitat_sim.physics.MotionType.KINEMATIC
-        # Habitat centers an imported mesh around its aggregate AABB. Restore
-        # the authored y=0 slab bottoms to the physical stage floor.
+            raise RuntimeError("Could not instantiate calibration object")
+        rigid.motion_type = habitat_sim.physics.MotionType.KINEMATIC
         rigid.translation = np.array(
-            [0.0, -float(rigid.collision_shape_aabb.min[1]), 0.0], dtype=np.float32
+            [0., -float(rigid.collision_shape_aabb.min[1]), 0.], dtype=np.float32
         )
 
         camera_y = 2.2
-        center_x = 0.5 * (backend.mapping.x_min + backend.mapping.x_max)
-        center_z = 0.5 * (backend.mapping.z_min + backend.mapping.z_max)
-        state = backend.habitat_sim.AgentState()
-        state.position = np.array([center_x, camera_y, center_z], dtype=np.float32)
-        from habitat_sim.utils.common import quat_from_angle_axis
+        state = habitat_sim.AgentState()
+        state.position = np.array([0., camera_y, 0.], dtype=np.float32)
         state.rotation = quat_from_angle_axis(
-            -math.pi / 2.0, np.array([1.0, 0.0, 0.0])
+            -math.pi / 2., np.array([1., 0., 0.])
         )
-        backend.sim.get_agent(config.num_robots).set_state(
-            state, infer_sensor_states=True
+        sim.get_agent(0).set_state(state, infer_sensor_states=True)
+        raw = np.asarray(
+            sim.get_sensor_observations(agent_ids=[0])[0]["calibration_depth"],
+            dtype=np.float32,
         )
-        observations = backend.sim.get_sensor_observations(
-            agent_ids=[config.num_robots]
-        )[config.num_robots]
-        raw_depth = np.asarray(observations["bev_depth"], dtype=np.float32)
-        metric_depth = habitat_orthographic_depth_to_metric(
-            raw_depth, config.bev_near, config.bev_far
+        metric = habitat_orthographic_depth_to_metric(
+            raw, config.bev_near, config.bev_far
         )
-        height_map = camera_y - metric_depth
-
+        height_map = camera_y - metric
         records = []
-        for x, expected_height in zip(CALIBRATION_X_M, CALIBRATION_HEIGHTS_M):
-            u, v = backend.mapping.world_to_bev(x, 0.0)
-            row = int(round(v))
-            col = int(round(u))
-            rendered_height = float(height_map[row, col])
-            ray = backend.habitat_sim.geo.Ray(
-                np.array([x, camera_y, 0.0], dtype=np.float32),
-                np.array([0.0, -1.0, 0.0], dtype=np.float32),
+        for x, expected in zip(CALIBRATION_X_M, CALIBRATION_HEIGHTS_M):
+            u, v = mapping.world_to_bev(x, 0.)
+            row, col = int(round(v)), int(round(u))
+            rendered = float(height_map[row, col])
+            ray = habitat_sim.geo.Ray(
+                np.array([x, camera_y, 0.], dtype=np.float32),
+                np.array([0., -1., 0.], dtype=np.float32),
             )
-            hit = backend.sim.cast_ray(
-                ray, max_distance=float(config.bev_far), buffer_distance=0.0
+            hit = sim.cast_ray(
+                ray, max_distance=float(config.bev_far), buffer_distance=0.
             )
             if not hit.has_hits():
-                raise RuntimeError(f"Calibration slab at x={x} produced no Bullet hit")
-            bullet_height = camera_y - float(hit.hits[0].ray_distance)
-            records.append(
-                {
-                    "expected_height_m": expected_height,
-                    "pixel_rc": [row, col],
-                    "rendered_height_m": rendered_height,
-                    "bullet_height_m": bullet_height,
-                    "render_error_m": abs(rendered_height - expected_height),
-                    "bullet_error_m": abs(bullet_height - expected_height),
-                    "render_bullet_error_m": abs(rendered_height - bullet_height),
-                }
-            )
-        maximum_error = max(
-            max(record["render_error_m"], record["bullet_error_m"])
-            for record in records
+                raise RuntimeError(f"No Bullet hit at calibration x={x}")
+            bullet = camera_y - float(hit.hits[0].ray_distance)
+            records.append({
+                "expected_height_m": expected,
+                "pixel_rc": [row, col],
+                "rendered_height_m": rendered,
+                "bullet_height_m": bullet,
+                "render_error_m": abs(rendered - expected),
+                "bullet_error_m": abs(bullet - expected),
+                "render_bullet_error_m": abs(rendered - bullet),
+            })
+        maximum = max(
+            max(item["render_error_m"], item["bullet_error_m"])
+            for item in records
         )
         tolerance = float(config.height_validation_max_error_m)
         return {
             "available": True,
-            "passed": maximum_error <= tolerance,
-            "scene_id": scene_id,
+            "passed": maximum <= tolerance,
+            "scene_id": "NONE",
+            "dataset_independent": True,
             "asset": "assets/calibration/multilevel_slabs.object_config.json",
             "heights_m": list(CALIBRATION_HEIGHTS_M),
-            "max_abs_error_m": maximum_error,
+            "max_abs_error_m": maximum,
             "tolerance_m": tolerance,
             "records": records,
         }
     finally:
-        backend.close()
+        sim.close()

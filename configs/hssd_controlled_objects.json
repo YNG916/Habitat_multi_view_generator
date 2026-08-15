@@ -1,0 +1,437 @@
+{
+  "schema_version": "1.0.0",
+  "dataset_source": "hssd",
+  "source_dataset_config": "data/scene_datasets/hssd-hab/hssd-hab.scene_dataset_config.json",
+  "selection_policy": {
+    "real_hssd_templates_only": true,
+    "horizontal_extent_m": [
+      0.025,
+      0.5
+    ],
+    "height_m": [
+      0.01,
+      0.5
+    ],
+    "target_horizontal_extent_m": 0.14,
+    "target_height_m": 0.12
+  },
+  "selected_handles": {
+    "cup": "/cvhci/temp/yyang/Multi_view_world_model/habitat/data/versioned_data/hssd-hab/objects/0/0614900c76c99d7781721d3d9053dcf5115ee3d5.object_config.json",
+    "bowl": "/cvhci/temp/yyang/Multi_view_world_model/habitat/data/versioned_data/hssd-hab/objects/4/432ea22941c88f9849c68d2fc40f2ee62af3b303.object_config.json",
+    "book": "/cvhci/temp/yyang/Multi_view_world_model/habitat/data/versioned_data/hssd-hab/objects/decomposed/2db50fb1f8120974d6157ae9aff704a4fc9d181f/2db50fb1f8120974d6157ae9aff704a4fc9d181f_part_47.object_config.json",
+    "bottle": "/cvhci/temp/yyang/Multi_view_world_model/habitat/data/versioned_data/hssd-hab/objects/decomposed/ab541ddf6a38484c5fa53f5f642d8897133519c7/ab541ddf6a38484c5fa53f5f642d8897133519c7_part_1.object_config.json",
+    "box": "/cvhci/temp/yyang/Multi_view_world_model/habitat/data/versioned_data/hssd-hab/objects/b/b1f493b30dcf305b4ca0a651eb6820f2abcd7777.object_config.json"
+  },
+  "candidates": {
+    "cup": [
+      {
+        "handle": "/cvhci/temp/yyang/Multi_view_world_model/habitat/data/versioned_data/hssd-hab/objects/0/0614900c76c99d7781721d3d9053dcf5115ee3d5.object_config.json",
+        "semantic_id": 99,
+        "extent_xyz_m": [
+          0.15078145265579224,
+          0.1469999998807907,
+          0.15078145265579224
+        ],
+        "selection_score": 0.02428145259618758
+      },
+      {
+        "handle": "/cvhci/temp/yyang/Multi_view_world_model/habitat/data/versioned_data/hssd-hab/objects/0/076a39bd580b76413ea7128c6b124a8ef7231b76.object_config.json",
+        "semantic_id": 99,
+        "extent_xyz_m": [
+          0.15239286422729492,
+          0.07411892712116241,
+          0.15239286422729492
+        ],
+        "selection_score": 0.0353334006667137
+      },
+      {
+        "handle": "/cvhci/temp/yyang/Multi_view_world_model/habitat/data/versioned_data/hssd-hab/objects/7/73cae0c00c31e895cbf8c6ac2bcc3ce718d03b21.object_config.json",
+        "semantic_id": 99,
+        "extent_xyz_m": [
+          0.1419038027524948,
+          0.2508659362792969,
+          0.16457727551460266
+        ],
+        "selection_score": 0.09001024365425109
+      },
+      {
+        "handle": "/cvhci/temp/yyang/Multi_view_world_model/habitat/data/versioned_data/hssd-hab/objects/7/7803eed87c55068705e00ddc50b6060a67fc492e.object_config.json",
+        "semantic_id": 99,
+        "extent_xyz_m": [
+          0.059407517313957214,
+          0.15272966027259827,
+          0.059404000639915466
+        ],
+        "selection_score": 0.09695731282234193
+      }
+    ],
+    "bowl": [
+      {
+        "handle": "/cvhci/temp/yyang/Multi_view_world_model/habitat/data/versioned_data/hssd-hab/objects/4/432ea22941c88f9849c68d2fc40f2ee62af3b303.object_config.json",
+        "semantic_id": 45,
+        "extent_xyz_m": [
+          0.30007627606391907,
+          0.14911559224128723,
+          0.30007627606391907
+        ],
+        "selection_score": 0.17463407218456267
+      },
+      {
+        "handle": "/cvhci/temp/yyang/Multi_view_world_model/habitat/data/versioned_data/hssd-hab/objects/7/72d4bee536e3e39ae09d9d3248c36dbc644638ec.object_config.json",
+        "semantic_id": 45,
+        "extent_xyz_m": [
+          0.3760572075843811,
+          0.07617855817079544,
+          0.3761865794658661
+        ],
+        "selection_score": 0.25809730038046835
+      },
+      {
+        "handle": "/cvhci/temp/yyang/Multi_view_world_model/habitat/data/versioned_data/hssd-hab/objects/c/c816dc1bb177a739c7c52bbca6097e7e627a2214.object_config.json",
+        "semantic_id": 45,
+        "extent_xyz_m": [
+          0.4487886428833008,
+          0.1499999612569809,
+          0.44919338822364807
+        ],
+        "selection_score": 0.3241933688521385
+      }
+    ],
+    "book": [
+      {
+        "handle": "/cvhci/temp/yyang/Multi_view_world_model/habitat/data/versioned_data/hssd-hab/objects/decomposed/2db50fb1f8120974d6157ae9aff704a4fc9d181f/2db50fb1f8120974d6157ae9aff704a4fc9d181f_part_47.object_config.json",
+        "semantic_id": 41,
+        "extent_xyz_m": [
+          0.07837845385074615,
+          0.28399962186813354,
+          0.23845511674880981
+        ],
+        "selection_score": 0.18045492768287658
+      },
+      {
+        "handle": "/cvhci/temp/yyang/Multi_view_world_model/habitat/data/versioned_data/hssd-hab/objects/0/068dc0001bbcb597e85cbb5b3ca820a9231e58e4.object_config.json",
+        "semantic_id": 41,
+        "extent_xyz_m": [
+          0.25,
+          0.30000001192092896,
+          0.06003207713365555
+        ],
+        "selection_score": 0.20000000596046447
+      },
+      {
+        "handle": "/cvhci/temp/yyang/Multi_view_world_model/habitat/data/versioned_data/hssd-hab/objects/decomposed/c038b4f74c5841247cc2f3b196a55789e5055ccb/c038b4f74c5841247cc2f3b196a55789e5055ccb_part_2.object_config.json",
+        "semantic_id": 41,
+        "extent_xyz_m": [
+          0.3483195900917053,
+          0.14815908670425415,
+          0.09232214093208313
+        ],
+        "selection_score": 0.2223991334438324
+      },
+      {
+        "handle": "/cvhci/temp/yyang/Multi_view_world_model/habitat/data/versioned_data/hssd-hab/objects/4/4ec6215b43f606e9e77c881ad0f1dfa81474805d.object_config.json",
+        "semantic_id": 41,
+        "extent_xyz_m": [
+          0.27939924597740173,
+          0.02539999969303608,
+          0.3555995225906372
+        ],
+        "selection_score": 0.26289952274411915
+      },
+      {
+        "handle": "/cvhci/temp/yyang/Multi_view_world_model/habitat/data/versioned_data/hssd-hab/objects/b/bbfb0ee0e62f355da814813c92f896e46a1b6971.object_config.json",
+        "semantic_id": 41,
+        "extent_xyz_m": [
+          0.36780840158462524,
+          0.2886999547481537,
+          0.20375050604343414
+        ],
+        "selection_score": 0.3121583789587021
+      },
+      {
+        "handle": "/cvhci/temp/yyang/Multi_view_world_model/habitat/data/versioned_data/hssd-hab/objects/7/7fb3100902d859575057623870a2ee4159a9428e.object_config.json",
+        "semantic_id": 41,
+        "extent_xyz_m": [
+          0.46620774269104004,
+          0.2507266402244568,
+          0.19319230318069458
+        ],
+        "selection_score": 0.3915710628032684
+      },
+      {
+        "handle": "/cvhci/temp/yyang/Multi_view_world_model/habitat/data/versioned_data/hssd-hab/objects/0/0f7a798499792d2d32a39a87ebabfa57c00ba48e.object_config.json",
+        "semantic_id": 41,
+        "extent_xyz_m": [
+          0.30000001192092896,
+          0.019999999552965164,
+          0.5
+        ],
+        "selection_score": 0.4100000002235174
+      },
+      {
+        "handle": "/cvhci/temp/yyang/Multi_view_world_model/habitat/data/versioned_data/hssd-hab/objects/8/8c73109a6020fbf91d2491766b22e7167f13ae21.object_config.json",
+        "semantic_id": 41,
+        "extent_xyz_m": [
+          0.30000001192092896,
+          0.019999999552965164,
+          0.5
+        ],
+        "selection_score": 0.4100000002235174
+      }
+    ],
+    "bottle": [
+      {
+        "handle": "/cvhci/temp/yyang/Multi_view_world_model/habitat/data/versioned_data/hssd-hab/objects/decomposed/ab541ddf6a38484c5fa53f5f642d8897133519c7/ab541ddf6a38484c5fa53f5f642d8897133519c7_part_1.object_config.json",
+        "semantic_id": 43,
+        "extent_xyz_m": [
+          0.1015678346157074,
+          0.1015678197145462,
+          0.22795641422271729
+        ],
+        "selection_score": 0.09717250436544417
+      },
+      {
+        "handle": "/cvhci/temp/yyang/Multi_view_world_model/habitat/data/versioned_data/hssd-hab/objects/decomposed/ab541ddf6a38484c5fa53f5f642d8897133519c7/ab541ddf6a38484c5fa53f5f642d8897133519c7_part_3.object_config.json",
+        "semantic_id": 43,
+        "extent_xyz_m": [
+          0.12416920065879822,
+          0.12416920810937881,
+          0.2446836233139038
+        ],
+        "selection_score": 0.1067682273685932
+      },
+      {
+        "handle": "/cvhci/temp/yyang/Multi_view_world_model/habitat/data/versioned_data/hssd-hab/objects/decomposed/ab541ddf6a38484c5fa53f5f642d8897133519c7/ab541ddf6a38484c5fa53f5f642d8897133519c7_part_2.object_config.json",
+        "semantic_id": 43,
+        "extent_xyz_m": [
+          0.09472903609275818,
+          0.09427124261856079,
+          0.2577296495437622
+        ],
+        "selection_score": 0.1305940282344818
+      },
+      {
+        "handle": "/cvhci/temp/yyang/Multi_view_world_model/habitat/data/versioned_data/hssd-hab/objects/1/1dcc33676429b1c8cdef1b4780986001e1bb2625.object_config.json",
+        "semantic_id": 43,
+        "extent_xyz_m": [
+          0.252420037984848,
+          0.3948459029197693,
+          0.21998852491378784
+        ],
+        "selection_score": 0.24984298944473265
+      },
+      {
+        "handle": "/cvhci/temp/yyang/Multi_view_world_model/habitat/data/versioned_data/hssd-hab/objects/2/2497f6c429ad6112bd4c1f9a45164d960c742e0b.object_config.json",
+        "semantic_id": 43,
+        "extent_xyz_m": [
+          0.3996070921421051,
+          0.2875211238861084,
+          0.23576557636260986
+        ],
+        "selection_score": 0.3433676540851593
+      }
+    ],
+    "box": [
+      {
+        "handle": "/cvhci/temp/yyang/Multi_view_world_model/habitat/data/versioned_data/hssd-hab/objects/b/b1f493b30dcf305b4ca0a651eb6820f2abcd7777.object_config.json",
+        "semantic_id": 46,
+        "extent_xyz_m": [
+          0.14000004529953003,
+          0.02988951839506626,
+          0.09600024670362473
+        ],
+        "selection_score": 0.04505528610199688
+      },
+      {
+        "handle": "/cvhci/temp/yyang/Multi_view_world_model/habitat/data/versioned_data/hssd-hab/objects/0/04db2653cd2e68429e20be934b35ee9733138f6f.object_config.json",
+        "semantic_id": 46,
+        "extent_xyz_m": [
+          0.16844601929187775,
+          0.03449704498052597,
+          0.12002155184745789
+        ],
+        "selection_score": 0.07119749680161475
+      },
+      {
+        "handle": "/cvhci/temp/yyang/Multi_view_world_model/habitat/data/versioned_data/hssd-hab/objects/decomposed/9a1c224cd11be35a5c28347de7868674f56789da/9a1c224cd11be35a5c28347de7868674f56789da_part_2.object_config.json",
+        "semantic_id": 46,
+        "extent_xyz_m": [
+          0.07726561278104782,
+          0.06485748291015625,
+          0.06632306426763535
+        ],
+        "selection_score": 0.09030564576387407
+      },
+      {
+        "handle": "/cvhci/temp/yyang/Multi_view_world_model/habitat/data/versioned_data/hssd-hab/objects/2/2382da50dbb82b1a316461a792b383441edf1a9f.object_config.json",
+        "semantic_id": 46,
+        "extent_xyz_m": [
+          0.23999938368797302,
+          0.1210051029920578,
+          0.18448883295059204
+        ],
+        "selection_score": 0.10050193518400191
+      },
+      {
+        "handle": "/cvhci/temp/yyang/Multi_view_world_model/habitat/data/versioned_data/hssd-hab/objects/decomposed/dd56f602c6c29a97bbff71f4e48f07454ec97b62/dd56f602c6c29a97bbff71f4e48f07454ec97b62_part_4.object_config.json",
+        "semantic_id": 46,
+        "extent_xyz_m": [
+          0.06690821051597595,
+          0.056163400411605835,
+          0.057432521134614944
+        ],
+        "selection_score": 0.10501008927822114
+      },
+      {
+        "handle": "/cvhci/temp/yyang/Multi_view_world_model/habitat/data/versioned_data/hssd-hab/objects/8/88a74bcb73482e4f54859bbf8b71b6d2751e7bb9.object_config.json",
+        "semantic_id": 46,
+        "extent_xyz_m": [
+          0.12999984622001648,
+          0.33044442534446716,
+          0.12999984622001648
+        ],
+        "selection_score": 0.11522236645221712
+      },
+      {
+        "handle": "/cvhci/temp/yyang/Multi_view_world_model/habitat/data/versioned_data/hssd-hab/objects/2/2e5aaec96e52025365e10b73e2b08e515adabeaf.object_config.json",
+        "semantic_id": 46,
+        "extent_xyz_m": [
+          0.20000000298023224,
+          0.23997347056865692,
+          0.20000001788139343
+        ],
+        "selection_score": 0.11998675316572188
+      },
+      {
+        "handle": "/cvhci/temp/yyang/Multi_view_world_model/habitat/data/versioned_data/hssd-hab/objects/3/38fd5de657fcd3da13185163b8c66fe4bb260070.object_config.json",
+        "semantic_id": 46,
+        "extent_xyz_m": [
+          0.2800000011920929,
+          0.1300189346075058,
+          0.20000000298023224
+        ],
+        "selection_score": 0.14500946849584578
+      },
+      {
+        "handle": "/cvhci/temp/yyang/Multi_view_world_model/habitat/data/versioned_data/hssd-hab/objects/c/cfcd5e10947538265eb2e26effddbffc21209b3d.object_config.json",
+        "semantic_id": 46,
+        "extent_xyz_m": [
+          0.26410895586013794,
+          0.16192437708377838,
+          0.2636401951313019
+        ],
+        "selection_score": 0.14507114440202712
+      },
+      {
+        "handle": "/cvhci/temp/yyang/Multi_view_world_model/habitat/data/versioned_data/hssd-hab/objects/a/a2b5c83d8ed4b9acc659b4c27cb258d7ffa9d2b7.object_config.json",
+        "semantic_id": 46,
+        "extent_xyz_m": [
+          0.3100000023841858,
+          0.15016214549541473,
+          0.20000000298023224
+        ],
+        "selection_score": 0.18508107513189315
+      },
+      {
+        "handle": "/cvhci/temp/yyang/Multi_view_world_model/habitat/data/versioned_data/hssd-hab/objects/b/b90db13497b5b84599e9bac16913b5e57492dc3a.object_config.json",
+        "semantic_id": 46,
+        "extent_xyz_m": [
+          0.3100000023841858,
+          0.15016214549541473,
+          0.20000000298023224
+        ],
+        "selection_score": 0.18508107513189315
+      },
+      {
+        "handle": "/cvhci/temp/yyang/Multi_view_world_model/habitat/data/versioned_data/hssd-hab/objects/5/5faf4424aa60c7cc0c6bbb85393386a745084935.object_config.json",
+        "semantic_id": 46,
+        "extent_xyz_m": [
+          0.25,
+          0.28519439697265625,
+          0.25
+        ],
+        "selection_score": 0.19259719848632811
+      },
+      {
+        "handle": "/cvhci/temp/yyang/Multi_view_world_model/habitat/data/versioned_data/hssd-hab/objects/1/1e6795498f065062e0eb70d318cd34337dbcd952.object_config.json",
+        "semantic_id": 46,
+        "extent_xyz_m": [
+          0.24000191688537598,
+          0.0799998864531517,
+          0.3700004816055298
+        ],
+        "selection_score": 0.2500005383789539
+      },
+      {
+        "handle": "/cvhci/temp/yyang/Multi_view_world_model/habitat/data/versioned_data/hssd-hab/objects/b/b36f892a0b4421b9c77273b859da50d85e101214.object_config.json",
+        "semantic_id": 46,
+        "extent_xyz_m": [
+          0.3500000536441803,
+          0.25,
+          0.28999966382980347
+        ],
+        "selection_score": 0.2750000536441803
+      },
+      {
+        "handle": "/cvhci/temp/yyang/Multi_view_world_model/habitat/data/versioned_data/hssd-hab/objects/8/8ff1977bc0c68f2b436c7938494e65f8b427b5ed.object_config.json",
+        "semantic_id": 46,
+        "extent_xyz_m": [
+          0.37015172839164734,
+          0.22856199741363525,
+          0.2923739552497864
+        ],
+        "selection_score": 0.28443272709846495
+      },
+      {
+        "handle": "/cvhci/temp/yyang/Multi_view_world_model/habitat/data/versioned_data/hssd-hab/objects/a/a162b54f72a015f8066899145788fcfc278e5bf1.object_config.json",
+        "semantic_id": 46,
+        "extent_xyz_m": [
+          0.37015172839164734,
+          0.22856199741363525,
+          0.2923739552497864
+        ],
+        "selection_score": 0.28443272709846495
+      },
+      {
+        "handle": "/cvhci/temp/yyang/Multi_view_world_model/habitat/data/versioned_data/hssd-hab/objects/b/bbf950688bbeefa6b4515267f3faa6d05cbcf3c5.object_config.json",
+        "semantic_id": 46,
+        "extent_xyz_m": [
+          0.37015172839164734,
+          0.22856199741363525,
+          0.2923739552497864
+        ],
+        "selection_score": 0.28443272709846495
+      },
+      {
+        "handle": "/cvhci/temp/yyang/Multi_view_world_model/habitat/data/versioned_data/hssd-hab/objects/e/e17c6ae756035c27bb5e084b51ff72dc8f90480c.object_config.json",
+        "semantic_id": 46,
+        "extent_xyz_m": [
+          0.36000001430511475,
+          0.25,
+          0.23000000417232513
+        ],
+        "selection_score": 0.28500001430511473
+      },
+      {
+        "handle": "/cvhci/temp/yyang/Multi_view_world_model/habitat/data/versioned_data/hssd-hab/objects/b/b44b3601e32d9c2501796de2481bb9f4d8490b7e.object_config.json",
+        "semantic_id": 46,
+        "extent_xyz_m": [
+          0.30999556183815,
+          0.31000444293022156,
+          0.33000028133392334
+        ],
+        "selection_score": 0.2850025027990341
+      },
+      {
+        "handle": "/cvhci/temp/yyang/Multi_view_world_model/habitat/data/versioned_data/hssd-hab/objects/f/fb0eaad75bf1f0175cb8d69beb9937f09c179c3f.object_config.json",
+        "semantic_id": 46,
+        "extent_xyz_m": [
+          0.254793643951416,
+          0.12068037688732147,
+          0.42634496092796326
+        ],
+        "selection_score": 0.286685149371624
+      }
+    ]
+  }
+}

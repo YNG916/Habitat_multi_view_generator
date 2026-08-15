@@ -1,0 +1,50 @@
+{
+  "schema_version": "1.0.0",
+  "split": "val",
+  "layout_families": [
+    "Stage_v3_sc2_staging"
+  ],
+  "states": [
+    "scenes/v3_sc2_staging_00/states/state_000001"
+  ],
+  "after_states": [
+    "scenes/v3_sc2_staging_00/states/state_after_000001_001_id",
+    "scenes/v3_sc2_staging_00/states/state_after_000001_001_ood"
+  ],
+  "interventions": [
+    "interventions/v3_sc2_staging_00/edit_000001_001_id.json",
+    "interventions/v3_sc2_staging_00/edit_000001_001_ood.json"
+  ],
+  "level2_by_regime": {
+    "id": {
+      "after_states": [
+        "scenes/v3_sc2_staging_00/states/state_after_000001_001_id"
+      ],
+      "interventions": [
+        "interventions/v3_sc2_staging_00/edit_000001_001_id.json"
+      ],
+      "pairs": [
+        {
+          "edit": "interventions/v3_sc2_staging_00/edit_000001_001_id.json",
+          "before_state": "scenes/v3_sc2_staging_00/states/state_000001",
+          "after_state": "scenes/v3_sc2_staging_00/states/state_after_000001_001_id"
+        }
+      ]
+    },
+    "ood": {
+      "after_states": [
+        "scenes/v3_sc2_staging_00/states/state_after_000001_001_ood"
+      ],
+      "interventions": [
+        "interventions/v3_sc2_staging_00/edit_000001_001_ood.json"
+      ],
+      "pairs": [
+        {
+          "edit": "interventions/v3_sc2_staging_00/edit_000001_001_ood.json",
+          "before_state": "scenes/v3_sc2_staging_00/states/state_000001",
+          "after_state": "scenes/v3_sc2_staging_00/states/state_after_000001_001_ood"
+        }
+      ]
+    }
+  }
+}

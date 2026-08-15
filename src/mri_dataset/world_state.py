@@ -189,6 +189,8 @@ class WorldState:
     parent_state_id: str = ""
     intervention: Dict[str, Any] = field(default_factory=dict)
     geometry_validation: Dict[str, Any] = field(default_factory=dict)
+    dataset_source: str = "hssd"
+    floor_id: str = "floor_00"
 
     def robot(self, robot_id: str) -> RobotState:
         for robot in self.robots:
@@ -207,6 +209,8 @@ class WorldState:
             "schema_version": self.schema_version,
             "state_id": self.state_id,
             "scene_id": self.scene_id,
+            "dataset_source": self.dataset_source,
+            "floor_id": self.floor_id,
             "floor_y": float(self.floor_y),
             "random_seed": int(self.random_seed),
             "state_origin": (

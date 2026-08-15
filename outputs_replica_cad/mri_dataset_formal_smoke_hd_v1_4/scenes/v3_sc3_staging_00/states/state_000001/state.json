@@ -1,0 +1,1298 @@
+{
+  "schema_version": "0.1.0",
+  "state_id": "state_000001",
+  "scene_id": "v3_sc3_staging_00",
+  "floor_y": 0.015343463420867898,
+  "random_seed": 3816662883,
+  "state_origin": "factual",
+  "coordinate_convention": {
+    "handedness": "right-handed",
+    "world_up": "+Y",
+    "ground_plane": "XZ",
+    "robot_forward_at_yaw_zero": "-Z",
+    "camera_local_forward": "-Z",
+    "yaw_axis": "+Y",
+    "yaw_positive": "right-hand-rule",
+    "bev_up": "-Z",
+    "bev_right": "+X",
+    "distance_unit": "meter",
+    "angle_unit": "radian",
+    "quaternion_order": "xyzw",
+    "opencv_camera_axes": {
+      "x": "right",
+      "y": "down",
+      "z": "forward"
+    }
+  },
+  "bev": {
+    "x_min": -2.661762237548828,
+    "x_max": 4.596167087554932,
+    "z_min": -4.801047325134277,
+    "z_max": 8.168274879455566,
+    "width": 1163,
+    "height": 2078,
+    "meters_per_pixel_x": 0.006246066544839724,
+    "meters_per_pixel_z": 0.006244257200091403,
+    "pixel_convention": "u right is +X; v down is +Z; pixel centers registered to bounds",
+    "files": {
+      "rgb": "bev/rgb.png",
+      "height": "bev/height.npz",
+      "occupancy": "bev/occupancy.npz",
+      "annotated": "bev/annotated.png",
+      "semantic": "bev/semantic.npz",
+      "instance": "bev/instance.npz"
+    },
+    "camera_position_world": [
+      0.9672024250030518,
+      2.215343463420868,
+      1.6836137771606445
+    ],
+    "camera_quaternion_world_xyzw": [
+      -0.7071067811865476,
+      0.0,
+      0.0,
+      0.7071067811865476
+    ],
+    "orthographic_scale": 0.13778034411842444,
+    "orthographic_extent_x_m": 7.25792932510376,
+    "orthographic_extent_z_m": 12.969322204589844,
+    "camera_height_above_floor_m": 2.2,
+    "render_resolution_hw": [
+      2078,
+      1163
+    ],
+    "bounds_source": "rendered_scene_aabb",
+    "navmesh_bounds_world": [
+      [
+        -2.6617631912231445,
+        -0.10094137489795685,
+        -4.75977897644043
+      ],
+      [
+        4.596166610717773,
+        4.659499168395996,
+        8.168274879455566
+      ]
+    ],
+    "rgb_representation": "interior top-down cutaway rendered below the ceiling",
+    "ceiling_clearance_m": 0.15,
+    "height_definition": "surface_world_y - floor_y",
+    "height_depth_conversion": "v0.3.3 orthographic generic-unprojection output is linearized with near/far, then height = camera_height_above_floor - metric_depth",
+    "height_depth_validation": {
+      "available": true,
+      "sample_count": 23,
+      "skipped_nonfloor_collision_rays": 1,
+      "mean_abs_error_m": 4.6621198235768696e-07,
+      "max_abs_error_m": 2.1576881411577986e-06,
+      "records": [
+        {
+          "pixel_rc": [
+            876,
+            591
+          ],
+          "world_xz": [
+            1.0296630904514488,
+            0.6689219821457915
+          ],
+          "saved_height_m": -2.384185791015625e-07,
+          "render_depth_m": 2.2000002384185793,
+          "physics_ray_distance_m": 2.200000137090683,
+          "absolute_error_m": 1.0132789640682205e-07
+        },
+        {
+          "pixel_rc": [
+            1320,
+            893
+          ],
+          "world_xz": [
+            2.9159751869930464,
+            3.4413721789863736
+          ],
+          "saved_height_m": 0.01018214225769043,
+          "render_depth_m": 2.1898178577423097,
+          "physics_ray_distance_m": 2.1898169815540314,
+          "absolute_error_m": 8.761882784869002e-07
+        },
+        {
+          "pixel_rc": [
+            1375,
+            336
+          ],
+          "world_xz": [
+            -0.5630838784826806,
+            3.7848063249914006
+          ],
+          "saved_height_m": 7.152557373046875e-07,
+          "render_depth_m": 2.199999284744263,
+          "physics_ray_distance_m": 2.1999993920326233,
+          "absolute_error_m": 1.0728836030704514e-07
+        },
+        {
+          "pixel_rc": [
+            1762,
+            806
+          ],
+          "world_xz": [
+            2.3725673975919896,
+            6.201333861426775
+          ],
+          "saved_height_m": 0.010141372680664062,
+          "render_depth_m": 2.189858627319336,
+          "physics_ray_distance_m": 2.189856916666031,
+          "absolute_error_m": 1.710653305342369e-06
+        },
+        {
+          "pixel_rc": [
+            1031,
+            186
+          ],
+          "world_xz": [
+            -1.4999938602086393,
+            1.6367818481599592
+          ],
+          "saved_height_m": 4.76837158203125e-07,
+          "render_depth_m": 2.199999523162842,
+          "physics_ray_distance_m": 2.200000137090683,
+          "absolute_error_m": 6.139278408978655e-07
+        },
+        {
+          "pixel_rc": [
+            1316,
+            268
+          ],
+          "world_xz": [
+            -0.987816403531782,
+            3.416395150186009
+          ],
+          "saved_height_m": 7.152557373046875e-07,
+          "render_depth_m": 2.199999284744263,
+          "physics_ray_distance_m": 2.199999690055847,
+          "absolute_error_m": 4.0531158418399826e-07
+        },
+        {
+          "pixel_rc": [
+            1203,
+            585
+          ],
+          "world_xz": [
+            0.9921866911824102,
+            2.71079408657568
+          ],
+          "saved_height_m": 4.76837158203125e-07,
+          "render_depth_m": 2.199999523162842,
+          "physics_ray_distance_m": 2.199999839067459,
+          "absolute_error_m": 3.159046170209123e-07
+        },
+        {
+          "pixel_rc": [
+            613,
+            739
+          ],
+          "world_xz": [
+            1.9540809390877287,
+            -0.973317661478247
+          ],
+          "saved_height_m": -9.5367431640625e-07,
+          "render_depth_m": 2.2000009536743166,
+          "physics_ray_distance_m": 2.200000435113907,
+          "absolute_error_m": 5.185604098345564e-07
+        },
+        {
+          "pixel_rc": [
+            1747,
+            907
+          ],
+          "world_xz": [
+            3.0034201186208014,
+            6.107670003425405
+          ],
+          "saved_height_m": 0.010141372680664062,
+          "render_depth_m": 2.189858627319336,
+          "physics_ray_distance_m": 2.189856469631195,
+          "absolute_error_m": 2.1576881411577986e-06
+        },
+        {
+          "pixel_rc": [
+            2069,
+            788
+          ],
+          "world_xz": [
+            2.2601381997848744,
+            8.118320821854836
+          ],
+          "saved_height_m": 2.1457672119140625e-06,
+          "render_depth_m": 2.1999978542327883,
+          "physics_ray_distance_m": 2.1999983489513397,
+          "absolute_error_m": 4.947185513470842e-07
+        },
+        {
+          "pixel_rc": [
+            1474,
+            721
+          ],
+          "world_xz": [
+            1.8416517412806135,
+            4.40298778780045
+          ],
+          "saved_height_m": 7.152557373046875e-07,
+          "render_depth_m": 2.199999284744263,
+          "physics_ray_distance_m": 2.1999993920326233,
+          "absolute_error_m": 1.0728836030704514e-07
+        },
+        {
+          "pixel_rc": [
+            156,
+            132
+          ],
+          "world_xz": [
+            -1.8372814536299844,
+            -3.8269432019200185
+          ],
+          "saved_height_m": -1.1920928955078125e-06,
+          "render_depth_m": 2.2000011920928957,
+          "physics_ray_distance_m": 2.2000014781951904,
+          "absolute_error_m": 2.86102294633217e-07
+        },
+        {
+          "pixel_rc": [
+            1347,
+            483
+          ],
+          "world_xz": [
+            0.35508790360875864,
+            3.6099671233888415
+          ],
+          "saved_height_m": 7.152557373046875e-07,
+          "render_depth_m": 2.199999284744263,
+          "physics_ray_distance_m": 2.1999993920326233,
+          "absolute_error_m": 1.0728836030704514e-07
+        },
+        {
+          "pixel_rc": [
+            1043,
+            1129
+          ],
+          "world_xz": [
+            4.390046891575221,
+            1.7117129345610556
+          ],
+          "saved_height_m": 4.76837158203125e-07,
+          "render_depth_m": 2.199999523162842,
+          "physics_ray_distance_m": 2.199999988079071,
+          "absolute_error_m": 4.649162289593889e-07
+        },
+        {
+          "pixel_rc": [
+            1442,
+            836
+          ],
+          "world_xz": [
+            2.559949393937182,
+            4.203171557397527
+          ],
+          "saved_height_m": 7.152557373046875e-07,
+          "render_depth_m": 2.199999284744263,
+          "physics_ray_distance_m": 2.1999993920326233,
+          "absolute_error_m": 1.0728836030704514e-07
+        },
+        {
+          "pixel_rc": [
+            992,
+            927
+          ],
+          "world_xz": [
+            3.1283414495175963,
+            1.393255817356394
+          ],
+          "saved_height_m": 0.010181665420532227,
+          "render_depth_m": 2.189818334579468,
+          "physics_ray_distance_m": 2.189817875623703,
+          "absolute_error_m": 4.589557650591658e-07
+        },
+        {
+          "pixel_rc": [
+            583,
+            143
+          ],
+          "world_xz": [
+            -1.7685747216367476,
+            -1.1606453774809897
+          ],
+          "saved_height_m": -9.5367431640625e-07,
+          "render_depth_m": 2.2000009536743166,
+          "physics_ray_distance_m": 2.200000584125519,
+          "absolute_error_m": 3.6954879789607986e-07
+        },
+        {
+          "pixel_rc": [
+            1871,
+            918
+          ],
+          "world_xz": [
+            3.0721268506140387,
+            6.881957896236736
+          ],
+          "saved_height_m": 0.010142087936401367,
+          "render_depth_m": 2.189857912063599,
+          "physics_ray_distance_m": 2.189858555793762,
+          "absolute_error_m": 6.437301632855608e-07
+        },
+        {
+          "pixel_rc": [
+            1291,
+            570
+          ],
+          "world_xz": [
+            0.8984956930098145,
+            3.2602887201837234
+          ],
+          "saved_height_m": 7.152557373046875e-07,
+          "render_depth_m": 2.199999284744263,
+          "physics_ray_distance_m": 2.1999993920326233,
+          "absolute_error_m": 1.0728836030704514e-07
+        },
+        {
+          "pixel_rc": [
+            352,
+            760
+          ],
+          "world_xz": [
+            2.0852483365293626,
+            -2.6030687907021033
+          ],
+          "saved_height_m": -1.1920928955078125e-06,
+          "render_depth_m": 2.2000011920928957,
+          "physics_ray_distance_m": 2.2000008821487427,
+          "absolute_error_m": 3.0994415312068924e-07
+        },
+        {
+          "pixel_rc": [
+            806,
+            782
+          ],
+          "world_xz": [
+            2.2226618005158363,
+            0.23182397813939382
+          ],
+          "saved_height_m": -2.384185791015625e-07,
+          "render_depth_m": 2.2000002384185793,
+          "physics_ray_distance_m": 2.200000137090683,
+          "absolute_error_m": 1.0132789640682205e-07
+        },
+        {
+          "pixel_rc": [
+            550,
+            352
+          ],
+          "world_xz": [
+            -0.463146813765245,
+            -1.3667058650840054
+          ],
+          "saved_height_m": -9.5367431640625e-07,
+          "render_depth_m": 2.2000009536743166,
+          "physics_ray_distance_m": 2.2000008821487427,
+          "absolute_error_m": 7.152557401912674e-08
+        },
+        {
+          "pixel_rc": [
+            173,
+            144
+          ],
+          "world_xz": [
+            -1.762328655091908,
+            -3.7207908295184646
+          ],
+          "saved_height_m": -1.1920928955078125e-06,
+          "render_depth_m": 2.2000011920928957,
+          "physics_ray_distance_m": 2.2000014781951904,
+          "absolute_error_m": 2.86102294633217e-07
+        }
+      ],
+      "validation_scope": "physical-floor pixels within 0.030 m",
+      "note": "floor render depth compared with Bullet downward-ray distance"
+    },
+    "semantic_encoding": "controlled_entity_category_id",
+    "semantic_scope": "robots and generator-controlled movable objects; 0 is unlabeled scene",
+    "semantic_category_ids": {
+      "robot": 1,
+      "cup": 10,
+      "bowl": 11,
+      "book": 12
+    },
+    "instance_id_encoding": "Habitat SemanticSensorTarget.OBJECT_ID",
+    "entity_object_ids": {
+      "robot_01": 59,
+      "robot_02": 58,
+      "robot_03": 57,
+      "object_001": 56,
+      "object_002": 60
+    }
+  },
+  "robots": [
+    {
+      "robot_id": "robot_01",
+      "base_position_world": [
+        -0.5070784091949463,
+        0.015343463420867898,
+        1.3999781608581543
+      ],
+      "yaw_rad": -2.1920032703341485,
+      "quaternion_world_xyzw": [
+        0.0,
+        -0.8893865982921099,
+        0.0,
+        0.45715585830041516
+      ],
+      "forward_world": [
+        0.8131765874062321,
+        0.0,
+        0.5820170424432216
+      ],
+      "camera_height_m": 0.15,
+      "camera_forward_offset_m": 0.235,
+      "T_world_from_robot": [
+        [
+          -0.5820170424432216,
+          -0.0,
+          -0.8131765874062321,
+          -0.5070784091949463
+        ],
+        [
+          0.0,
+          1.0,
+          -0.0,
+          0.015343463420867898
+        ],
+        [
+          0.8131765874062321,
+          0.0,
+          -0.5820170424432216,
+          1.3999781608581543
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "proxy_asset_handle": "assets/robot_proxies/robot_red.object_config.json",
+      "proxy_semantic_id": 1001,
+      "visibility": {
+        "robot_01": {
+          "visible": false,
+          "geometrically_visible": false,
+          "benchmark_visible": false,
+          "benchmark_min_pixels": 64,
+          "visible_pixel_count": 0,
+          "method": "object_id_sensor"
+        },
+        "robot_02": {
+          "visible": true,
+          "geometrically_visible": true,
+          "benchmark_visible": true,
+          "benchmark_min_pixels": 64,
+          "visible_pixel_count": 202151,
+          "method": "object_id_sensor"
+        },
+        "robot_03": {
+          "visible": true,
+          "geometrically_visible": true,
+          "benchmark_visible": true,
+          "benchmark_min_pixels": 64,
+          "visible_pixel_count": 3325,
+          "method": "object_id_sensor"
+        }
+      },
+      "files": {
+        "rgb": "robots/robot_01/rgb.png",
+        "depth": "robots/robot_01/depth.npz",
+        "depth_visualization": "robots/robot_01/depth_vis.png",
+        "semantic": "robots/robot_01/semantic.npz",
+        "instance": "robots/robot_01/instance.npz"
+      },
+      "camera_position_world": [
+        -0.31598191115448176,
+        0.1653434634208679,
+        1.5367521658323113
+      ],
+      "camera_quaternion_world_xyzw": [
+        0.0,
+        -0.8893865982921099,
+        0.0,
+        0.45715585830041516
+      ],
+      "camera_intrinsics": {
+        "width": 2048,
+        "height": 2048,
+        "hfov_deg": 90.0,
+        "fx": 1024.0000000000002,
+        "fy": 1024.0000000000002,
+        "cx": 1024.0,
+        "cy": 1024.0,
+        "near": 0.05,
+        "far": 20.0,
+        "K": [
+          [
+            1024.0000000000002,
+            0.0,
+            1024.0
+          ],
+          [
+            0.0,
+            1024.0000000000002,
+            1024.0
+          ],
+          [
+            0.0,
+            0.0,
+            1.0
+          ]
+        ]
+      },
+      "T_world_from_camera_habitat": [
+        [
+          -0.5820170424432216,
+          -0.0,
+          -0.8131765874062321,
+          -0.31598191115448176
+        ],
+        [
+          0.0,
+          1.0,
+          -0.0,
+          0.1653434634208679
+        ],
+        [
+          0.8131765874062321,
+          0.0,
+          -0.5820170424432216,
+          1.5367521658323113
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "T_camera_habitat_from_world": [
+        [
+          -0.5820170424432216,
+          0.0,
+          0.8131765874062321,
+          -1.4335577392963432
+        ],
+        [
+          -0.0,
+          1.0,
+          0.0,
+          -0.1653434634208679
+        ],
+        [
+          -0.8131765874062321,
+          -0.0,
+          -0.5820170424432216,
+          0.6374668583312364
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "T_world_from_camera_cv": [
+        [
+          -0.5820170424432216,
+          0.0,
+          0.8131765874062321,
+          -0.31598191115448176
+        ],
+        [
+          0.0,
+          -1.0,
+          0.0,
+          0.1653434634208679
+        ],
+        [
+          0.8131765874062321,
+          0.0,
+          0.5820170424432216,
+          1.5367521658323113
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "T_camera_cv_from_world": [
+        [
+          -0.5820170424432216,
+          0.0,
+          0.8131765874062321,
+          -1.4335577392963432
+        ],
+        [
+          0.0,
+          -1.0,
+          0.0,
+          0.1653434634208679
+        ],
+        [
+          0.8131765874062321,
+          0.0,
+          0.5820170424432216,
+          -0.6374668583312364
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ]
+    },
+    {
+      "robot_id": "robot_02",
+      "base_position_world": [
+        -0.15606096386909485,
+        0.01534323990344999,
+        0.5531396865844727
+      ],
+      "yaw_rad": 3.0416679094625527,
+      "quaternion_world_xyzw": [
+        0.0,
+        0.9987521403009214,
+        0.0,
+        0.04994158832404801
+      ],
+      "forward_world": [
+        -0.09975853645734092,
+        0.0,
+        0.9950116755113427
+      ],
+      "camera_height_m": 0.15,
+      "camera_forward_offset_m": 0.235,
+      "T_world_from_robot": [
+        [
+          -0.9950116755113427,
+          0.0,
+          0.09975853645734092,
+          -0.15606096386909485
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          0.01534323990344999
+        ],
+        [
+          -0.09975853645734092,
+          0.0,
+          -0.9950116755113427,
+          0.5531396865844727
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "proxy_asset_handle": "assets/robot_proxies/robot_green.object_config.json",
+      "proxy_semantic_id": 1002,
+      "visibility": {
+        "robot_01": {
+          "visible": false,
+          "geometrically_visible": false,
+          "benchmark_visible": false,
+          "benchmark_min_pixels": 64,
+          "visible_pixel_count": 0,
+          "method": "object_id_sensor"
+        },
+        "robot_02": {
+          "visible": false,
+          "geometrically_visible": false,
+          "benchmark_visible": false,
+          "benchmark_min_pixels": 64,
+          "visible_pixel_count": 0,
+          "method": "object_id_sensor"
+        },
+        "robot_03": {
+          "visible": true,
+          "geometrically_visible": true,
+          "benchmark_visible": true,
+          "benchmark_min_pixels": 64,
+          "visible_pixel_count": 8334,
+          "method": "object_id_sensor"
+        }
+      },
+      "files": {
+        "rgb": "robots/robot_02/rgb.png",
+        "depth": "robots/robot_02/depth.npz",
+        "depth_visualization": "robots/robot_02/depth_vis.png",
+        "semantic": "robots/robot_02/semantic.npz",
+        "instance": "robots/robot_02/instance.npz"
+      },
+      "camera_position_world": [
+        -0.17950421993656995,
+        0.16534323990344998,
+        0.7869674303296381
+      ],
+      "camera_quaternion_world_xyzw": [
+        0.0,
+        0.9987521403009214,
+        0.0,
+        0.04994158832404801
+      ],
+      "camera_intrinsics": {
+        "width": 2048,
+        "height": 2048,
+        "hfov_deg": 90.0,
+        "fx": 1024.0000000000002,
+        "fy": 1024.0000000000002,
+        "cx": 1024.0,
+        "cy": 1024.0,
+        "near": 0.05,
+        "far": 20.0,
+        "K": [
+          [
+            1024.0000000000002,
+            0.0,
+            1024.0
+          ],
+          [
+            0.0,
+            1024.0000000000002,
+            1024.0
+          ],
+          [
+            0.0,
+            0.0,
+            1.0
+          ]
+        ]
+      },
+      "T_world_from_camera_habitat": [
+        [
+          -0.9950116755113427,
+          0.0,
+          0.09975853645734092,
+          -0.17950421993656995
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          0.16534323990344998
+        ],
+        [
+          -0.09975853645734092,
+          0.0,
+          -0.9950116755113427,
+          0.7869674303296381
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "T_camera_habitat_from_world": [
+        [
+          -0.9950116755113427,
+          0.0,
+          -0.09975853645734092,
+          -0.10010207555116393
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          -0.16534323990344998
+        ],
+        [
+          0.09975853645734092,
+          0.0,
+          -0.9950116755113427,
+          0.8009488596939379
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "T_world_from_camera_cv": [
+        [
+          -0.9950116755113427,
+          0.0,
+          -0.09975853645734092,
+          -0.17950421993656995
+        ],
+        [
+          0.0,
+          -1.0,
+          0.0,
+          0.16534323990344998
+        ],
+        [
+          -0.09975853645734092,
+          0.0,
+          0.9950116755113427,
+          0.7869674303296381
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "T_camera_cv_from_world": [
+        [
+          -0.9950116755113427,
+          0.0,
+          -0.09975853645734092,
+          -0.10010207555116393
+        ],
+        [
+          0.0,
+          -1.0,
+          0.0,
+          0.16534323990344998
+        ],
+        [
+          -0.09975853645734092,
+          0.0,
+          0.9950116755113427,
+          -0.8009488596939379
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ]
+    },
+    {
+      "robot_id": "robot_03",
+      "base_position_world": [
+        2.79990816116333,
+        0.02552562057971952,
+        1.2727487087249756
+      ],
+      "yaw_rad": 1.8106323513750038,
+      "quaternion_world_xyzw": [
+        0.0,
+        0.7866204128040084,
+        0.0,
+        0.6174369005494014
+      ],
+      "forward_world": [
+        -0.9713769391811952,
+        0.0,
+        0.23754334767989715
+      ],
+      "camera_height_m": 0.15,
+      "camera_forward_offset_m": 0.235,
+      "T_world_from_robot": [
+        [
+          -0.23754334767989715,
+          0.0,
+          0.9713769391811952,
+          2.79990816116333
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          0.02552562057971952
+        ],
+        [
+          -0.9713769391811952,
+          0.0,
+          -0.23754334767989715,
+          1.2727487087249756
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "proxy_asset_handle": "assets/robot_proxies/robot_blue.object_config.json",
+      "proxy_semantic_id": 1003,
+      "visibility": {
+        "robot_01": {
+          "visible": true,
+          "geometrically_visible": true,
+          "benchmark_visible": true,
+          "benchmark_min_pixels": 64,
+          "visible_pixel_count": 5153,
+          "method": "object_id_sensor"
+        },
+        "robot_02": {
+          "visible": false,
+          "geometrically_visible": false,
+          "benchmark_visible": false,
+          "benchmark_min_pixels": 64,
+          "visible_pixel_count": 0,
+          "method": "object_id_sensor"
+        },
+        "robot_03": {
+          "visible": false,
+          "geometrically_visible": false,
+          "benchmark_visible": false,
+          "benchmark_min_pixels": 64,
+          "visible_pixel_count": 0,
+          "method": "object_id_sensor"
+        }
+      },
+      "files": {
+        "rgb": "robots/robot_03/rgb.png",
+        "depth": "robots/robot_03/depth.npz",
+        "depth_visualization": "robots/robot_03/depth_vis.png",
+        "semantic": "robots/robot_03/semantic.npz",
+        "instance": "robots/robot_03/instance.npz"
+      },
+      "camera_position_world": [
+        2.571634580455749,
+        0.17552562057971952,
+        1.3285713954297513
+      ],
+      "camera_quaternion_world_xyzw": [
+        0.0,
+        0.7866204128040084,
+        0.0,
+        0.6174369005494014
+      ],
+      "camera_intrinsics": {
+        "width": 2048,
+        "height": 2048,
+        "hfov_deg": 90.0,
+        "fx": 1024.0000000000002,
+        "fy": 1024.0000000000002,
+        "cx": 1024.0,
+        "cy": 1024.0,
+        "near": 0.05,
+        "far": 20.0,
+        "K": [
+          [
+            1024.0000000000002,
+            0.0,
+            1024.0
+          ],
+          [
+            0.0,
+            1024.0000000000002,
+            1024.0
+          ],
+          [
+            0.0,
+            0.0,
+            1.0
+          ]
+        ]
+      },
+      "T_world_from_camera_habitat": [
+        [
+          -0.23754334767989715,
+          0.0,
+          0.9713769391811952,
+          2.571634580455749
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          0.17552562057971952
+        ],
+        [
+          -0.9713769391811952,
+          0.0,
+          -0.23754334767989715,
+          1.3285713954297513
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "T_camera_habitat_from_world": [
+        [
+          -0.23754334767989715,
+          0.0,
+          -0.9713769391811952,
+          1.9014183028270877
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          -0.17552562057971952
+        ],
+        [
+          0.9713769391811952,
+          0.0,
+          -0.23754334767989715,
+          -2.182433230553487
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "T_world_from_camera_cv": [
+        [
+          -0.23754334767989715,
+          0.0,
+          -0.9713769391811952,
+          2.571634580455749
+        ],
+        [
+          0.0,
+          -1.0,
+          0.0,
+          0.17552562057971952
+        ],
+        [
+          -0.9713769391811952,
+          0.0,
+          0.23754334767989715,
+          1.3285713954297513
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "T_camera_cv_from_world": [
+        [
+          -0.23754334767989715,
+          0.0,
+          -0.9713769391811952,
+          1.9014183028270877
+        ],
+        [
+          0.0,
+          -1.0,
+          0.0,
+          0.17552562057971952
+        ],
+        [
+          -0.9713769391811952,
+          0.0,
+          0.23754334767989715,
+          2.182433230553487
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ]
+    }
+  ],
+  "objects_path": "objects.json",
+  "controlled_object_count": 2,
+  "difficulty_overlap": {
+    "method": "metric_bev_fov_wedges",
+    "category_definition": "geometric FOV overlap without occlusion",
+    "common_iou": 0.14452410339907384,
+    "pairwise_iou": {
+      "robot_01_robot_02": 0.2867500636881508,
+      "robot_01_robot_03": 0.23746511173462428,
+      "robot_02_robot_03": 0.4051300873754874
+    },
+    "category": "easy"
+  },
+  "parent_state_id": null,
+  "intervention": null,
+  "geometry_validation": {
+    "pinhole_depth_center_rays": {
+      "depth_convention": "pinhole camera Z-depth; center pixel equals forward-ray distance",
+      "records": [
+        {
+          "robot_id": "robot_01",
+          "center_pixel_rc": [
+            1024,
+            1024
+          ],
+          "saved_depth_m": 1.7722508907318115,
+          "physics_ray_distance_m": 1.7637936770915985,
+          "absolute_error_m": 0.008457213640213013
+        },
+        {
+          "robot_id": "robot_02",
+          "center_pixel_rc": [
+            1024,
+            1024
+          ],
+          "saved_depth_m": 2.936098337173462,
+          "physics_ray_distance_m": 2.9315584897994995,
+          "absolute_error_m": 0.004539847373962402
+        },
+        {
+          "robot_id": "robot_03",
+          "center_pixel_rc": [
+            1024,
+            1024
+          ],
+          "saved_depth_m": 0.7447417974472046,
+          "physics_ray_distance_m": 0.7160782068967819,
+          "absolute_error_m": 0.02866359055042267
+        }
+      ],
+      "max_absolute_error_m": 0.02866359055042267
+    },
+    "pinhole_depth_offcenter_grid": {
+      "available": true,
+      "sample_count": 9,
+      "pixel_coordinate_convention": "integer pixel centers with cx=width/2, cy=height/2",
+      "validation_scope": "3x3 off-center grid; first Bullet hit is static stage",
+      "mean_abs_error_m": 0.0015321815303070419,
+      "median_abs_error_m": 0.00029387963558458186,
+      "p90_abs_error_m": 0.005641587825662597,
+      "max_abs_error_m": 0.005641977161571887,
+      "records": [
+        {
+          "robot_id": "robot_01",
+          "pixel_rc": [
+            512,
+            1536
+          ],
+          "saved_z_depth_m": 5.793951988220215,
+          "bullet_stage_z_depth_m": 5.788310011058643,
+          "absolute_error_m": 0.005641977161571887
+        },
+        {
+          "robot_id": "robot_01",
+          "pixel_rc": [
+            1536,
+            512
+          ],
+          "saved_z_depth_m": 0.29970723390579224,
+          "bullet_stage_z_depth_m": 0.29999986491656416,
+          "absolute_error_m": 0.00029263101077192655
+        },
+        {
+          "robot_id": "robot_01",
+          "pixel_rc": [
+            1536,
+            1024
+          ],
+          "saved_z_depth_m": 0.2997071444988251,
+          "bullet_stage_z_depth_m": 0.2999998697918239,
+          "absolute_error_m": 0.0002927252929988411
+        },
+        {
+          "robot_id": "robot_01",
+          "pixel_rc": [
+            1536,
+            1536
+          ],
+          "saved_z_depth_m": 0.2997070252895355,
+          "bullet_stage_z_depth_m": 0.2999997736659604,
+          "absolute_error_m": 0.0002927483764249006
+        },
+        {
+          "robot_id": "robot_02",
+          "pixel_rc": [
+            512,
+            512
+          ],
+          "saved_z_depth_m": 5.793951988220215,
+          "bullet_stage_z_depth_m": 5.78831049772853,
+          "absolute_error_m": 0.005641490491685275
+        },
+        {
+          "robot_id": "robot_02",
+          "pixel_rc": [
+            512,
+            1024
+          ],
+          "saved_z_depth_m": 3.4960455894470215,
+          "bullet_stage_z_depth_m": 3.496792107509306,
+          "absolute_error_m": 0.0007465180622845402
+        },
+        {
+          "robot_id": "robot_02",
+          "pixel_rc": [
+            1536,
+            512
+          ],
+          "saved_z_depth_m": 0.29970595240592957,
+          "bullet_stage_z_depth_m": 0.2999997128322246,
+          "absolute_error_m": 0.0002937604262950311
+        },
+        {
+          "robot_id": "robot_02",
+          "pixel_rc": [
+            1536,
+            1024
+          ],
+          "saved_z_depth_m": 0.29970583319664,
+          "bullet_stage_z_depth_m": 0.2999997365117864,
+          "absolute_error_m": 0.00029390331514639323
+        },
+        {
+          "robot_id": "robot_02",
+          "pixel_rc": [
+            1536,
+            1536
+          ],
+          "saved_z_depth_m": 0.29970583319664,
+          "bullet_stage_z_depth_m": 0.2999997128322246,
+          "absolute_error_m": 0.00029387963558458186
+        }
+      ]
+    },
+    "robot_ground_support": {
+      "robot_01": {
+        "robot_id": "robot_01",
+        "proxy_local_min_y_m": 0.0,
+        "collision_local_min_y_m": -0.000999998301267624,
+        "proxy_origin_world_y_m": 0.01534346304833889,
+        "physical_floor_world_y_m": 0.015343506634235338,
+        "visual_bottom_world_y_m": 0.01534346304833889,
+        "support_gap_m": -4.3585896447595474e-08,
+        "proxy_origin_offset_from_base_m": -3.725290076417309e-10
+      },
+      "robot_02": {
+        "robot_id": "robot_02",
+        "proxy_local_min_y_m": 0.0,
+        "collision_local_min_y_m": -0.000999998301267624,
+        "proxy_origin_world_y_m": 0.015343239530920982,
+        "physical_floor_world_y_m": 0.015343216061592058,
+        "visual_bottom_world_y_m": 0.015343239530920982,
+        "support_gap_m": 2.346932892471898e-08,
+        "proxy_origin_offset_from_base_m": -3.725290076417309e-10
+      },
+      "robot_03": {
+        "robot_id": "robot_03",
+        "proxy_local_min_y_m": 0.0,
+        "collision_local_min_y_m": -0.000999998301267624,
+        "proxy_origin_world_y_m": 0.025525620207190514,
+        "physical_floor_world_y_m": 0.02552561908960338,
+        "visual_bottom_world_y_m": 0.025525620207190514,
+        "support_gap_m": 1.1175871339474952e-09,
+        "proxy_origin_offset_from_base_m": -3.725290076417309e-10
+      }
+    }
+  }
+}

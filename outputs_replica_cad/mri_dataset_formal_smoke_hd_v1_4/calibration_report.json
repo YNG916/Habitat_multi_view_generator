@@ -1,0 +1,64 @@
+{
+  "available": true,
+  "passed": true,
+  "scene_id": "empty_stage",
+  "asset": "assets/calibration/multilevel_slabs.object_config.json",
+  "heights_m": [
+    0.2,
+    0.5,
+    1.0,
+    1.5
+  ],
+  "max_abs_error_m": 5.960464477539062e-07,
+  "tolerance_m": 0.02,
+  "records": [
+    {
+      "expected_height_m": 0.2,
+      "pixel_rc": [
+        489,
+        118
+      ],
+      "rendered_height_m": 0.19999980926513672,
+      "bullet_height_m": 0.20000011920928973,
+      "render_error_m": 1.9073486329235223e-07,
+      "bullet_error_m": 1.192092897173147e-07,
+      "render_bullet_error_m": 3.0994415300966693e-07
+    },
+    {
+      "expected_height_m": 0.5,
+      "pixel_rc": [
+        489,
+        218
+      ],
+      "rendered_height_m": 0.4999995231628418,
+      "bullet_height_m": 0.49999998211860675,
+      "render_error_m": 4.76837158203125e-07,
+      "bullet_error_m": 1.7881393254981504e-08,
+      "render_bullet_error_m": 4.589557649481435e-07
+    },
+    {
+      "expected_height_m": 1.0,
+      "pixel_rc": [
+        489,
+        318
+      ],
+      "rendered_height_m": 1.0000003576278687,
+      "bullet_height_m": 0.9999999523162844,
+      "render_error_m": 3.5762786865234375e-07,
+      "bullet_error_m": 4.7683715642676816e-08,
+      "render_bullet_error_m": 4.0531158429502057e-07
+    },
+    {
+      "expected_height_m": 1.5,
+      "pixel_rc": [
+        489,
+        418
+      ],
+      "rendered_height_m": 1.5000005960464478,
+      "bullet_height_m": 1.500000071525574,
+      "render_error_m": 5.960464477539062e-07,
+      "bullet_error_m": 7.152557390810443e-08,
+      "render_bullet_error_m": 5.245208738458018e-07
+    }
+  ]
+}

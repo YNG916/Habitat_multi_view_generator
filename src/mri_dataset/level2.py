@@ -153,6 +153,7 @@ def _sampling_candidate(
         config.random_seed,
         config.protocol_version,
         before.scene_id,
+        before.floor_id,
         before.state_id,
         regime,
         slot,
@@ -184,6 +185,8 @@ def _write_edit_record(
             "schema_version": "1.0.0",
             "edit_id": path.stem,
             "scene_id": before.scene_id,
+            "dataset_source": "hssd",
+            "floor_id": before.floor_id,
             "split": split,
             "benchmark_regime": regime,
             "protocol_version": config.protocol_version,
@@ -276,7 +279,7 @@ def collect_level2(
     initialize_dataset_root(root, config)
     before_dirs = sorted(
         root.glob(
-            f"scenes/{backend.scene_id}/states/"
+            f"scenes/{backend.scene_id}/floors/{backend.floor_id}/states/"
             "state_[0-9][0-9][0-9][0-9][0-9][0-9]"
         )
     )
@@ -298,7 +301,7 @@ def collect_level2(
     if slots < 0:
         raise ValueError("num_edits_per_state cannot be negative")
 
-    intervention_dir = root / "interventions" / backend.scene_id
+    intervention_dir = root / "interventions" / backend.scene_id / backend.floor_id
     intervention_dir.mkdir(parents=True, exist_ok=True)
     saved = []
     resumed = 0
@@ -306,6 +309,8 @@ def collect_level2(
     failures = Counter()
     for before_dir in before_dirs:
         before = load_world_state(before_dir)
+        if before.floor_id != backend.floor_id or before.dataset_source != "hssd":
+            raise ValueError("Level-2 source state does not match the HSSD floor backend")
         for regime in selected_regimes:
             accepted_keys = set()
             for slot in range(1, slots + 1):
@@ -317,6 +322,8 @@ def collect_level2(
                     root
                     / "scenes"
                     / backend.scene_id
+                    / "floors"
+                    / backend.floor_id
                     / "states"
                     / after_state_id
                 )

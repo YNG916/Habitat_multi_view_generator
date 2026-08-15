@@ -1,0 +1,316 @@
+{
+  "schema_version": "1.0.0",
+  "dataset_version": "1.0.0",
+  "generator": "mri_dataset",
+  "generation_fingerprint": "0724003f229d1583449800c30bf44bdd9369da3f355cb1feb3d93687aeacc6cf",
+  "config": {
+    "dataset_version": "1.0.0",
+    "protocol_version": "mri-formal-v1.4",
+    "scene_dataset_config": "data/replica_cad/replicaCAD.scene_dataset_config.json",
+    "scenes": [
+      "v3_sc0_staging_00",
+      "v3_sc1_staging_00",
+      "v3_sc2_staging_00",
+      "v3_sc3_staging_00"
+    ],
+    "navmesh_root": "data/replica_cad/navmeshes",
+    "output_root": "outputs/mri_dataset_formal_smoke_hd_v1_4",
+    "gpu_device_id": 0,
+    "num_robots": 3,
+    "width": 2048,
+    "height": 2048,
+    "hfov_deg": 90.0,
+    "near": 0.05,
+    "far": 20.0,
+    "pinhole_validation_min_samples": 3,
+    "pinhole_validation_median_error_m": 0.03,
+    "robot_body_diameter_m": 0.46,
+    "robot_body_height_m": 0.107,
+    "camera_height_min_m": 0.15,
+    "camera_height_max_m": 0.15,
+    "robot_camera_forward_offset_m": 0.235,
+    "min_obstacle_distance_m": 0.55,
+    "min_inter_robot_distance_m": 0.9,
+    "local_sampling_radius_m": 3.5,
+    "floor_tolerance_m": 0.25,
+    "heading_mode": "mixed",
+    "shared_heading_jitter_deg": 20.0,
+    "bev_meters_per_pixel": 0.00625,
+    "bev_camera_height_m": 2.2,
+    "bev_ceiling_clearance_m": 0.15,
+    "bev_near": 0.02,
+    "bev_far": 10.0,
+    "height_validation_samples": 24,
+    "height_validation_min_samples": 8,
+    "height_validation_max_error_m": 0.02,
+    "collision_penetration_tolerance_m": 0.002,
+    "support_contact_tolerance_m": 0.005,
+    "robot_floor_collision_tolerance_m": 0.012,
+    "max_state_sampling_attempts": 100,
+    "enable_instance": true,
+    "enable_semantic": true,
+    "semantic_category_ids": {
+      "robot": 1,
+      "cup": 10,
+      "bowl": 11,
+      "book": 12
+    },
+    "benchmark_visibility_min_pixels": 64,
+    "min_target_visible_observers": 1,
+    "require_visible_robot_target": true,
+    "require_visible_object_target": true,
+    "enable_robot_proxies": true,
+    "robot_proxy_configs": [
+      "assets/robot_proxies/robot_red.object_config.json",
+      "assets/robot_proxies/robot_green.object_config.json",
+      "assets/robot_proxies/robot_blue.object_config.json"
+    ],
+    "robot_proxy_height_variants": {},
+    "controlled_object_whitelist": {
+      "cup": "frl_apartment_cup_01.object_config.json",
+      "bowl": "frl_apartment_bowl_01.object_config.json",
+      "book": "frl_apartment_book_01.object_config.json"
+    },
+    "controlled_objects_per_state": 2,
+    "controlled_object_min_separation_m": 0.65,
+    "num_states": 1,
+    "num_states_by_split": {
+      "train": 1,
+      "val": 1,
+      "test": 1
+    },
+    "num_edits_per_state": 1,
+    "random_seed": 123,
+    "resume": true,
+    "save_visualizations": true,
+    "compress_numeric_arrays": true,
+    "run_multilevel_calibration_preflight": true,
+    "max_intervention_sampling_attempts": 80,
+    "scene_splits": {
+      "train": [
+        "v3_sc0_staging_00",
+        "v3_sc1_staging_00"
+      ],
+      "val": [
+        "v3_sc2_staging_00"
+      ],
+      "test": [
+        "v3_sc3_staging_00"
+      ]
+    },
+    "scene_layout_families": {
+      "v3_sc0_staging_00": "Stage_v3_sc0_staging",
+      "v3_sc1_staging_00": "Stage_v3_sc1_staging",
+      "v3_sc2_staging_00": "Stage_v3_sc2_staging",
+      "v3_sc3_staging_00": "Stage_v3_sc3_staging"
+    },
+    "level2_regimes_by_split": {
+      "train": [
+        "id"
+      ],
+      "val": [
+        "id",
+        "ood"
+      ],
+      "test": [
+        "id",
+        "ood"
+      ]
+    },
+    "intervention_type_weights": {
+      "robot_translate": 0.25,
+      "robot_rotate": 0.2,
+      "object_translate": 0.25,
+      "object_place_relative": 0.2,
+      "object_remove": 0.1
+    },
+    "intervention_regimes": {
+      "id": {
+        "robot_translate_m": [
+          0.5,
+          1.0
+        ],
+        "robot_rotate_deg": [
+          -60.0,
+          -30.0,
+          30.0,
+          60.0
+        ],
+        "object_translate_m": [
+          0.5,
+          1.0
+        ],
+        "object_place_relative_m": [
+          0.5,
+          1.0
+        ]
+      },
+      "ood": {
+        "robot_translate_m": [
+          0.75,
+          1.5
+        ],
+        "robot_rotate_deg": [
+          -90.0,
+          -45.0,
+          45.0,
+          90.0
+        ],
+        "object_translate_m": [
+          0.75,
+          1.5
+        ],
+        "object_place_relative_m": [
+          0.75,
+          1.5
+        ]
+      }
+    },
+    "scene_overrides": {
+      "v3_sc0_staging_00": {
+        "bev_camera_height_m": 2.2
+      },
+      "v3_sc1_staging_00": {
+        "bev_camera_height_m": 2.2
+      },
+      "v3_sc2_staging_00": {
+        "bev_camera_height_m": 2.2
+      },
+      "v3_sc3_staging_00": {
+        "bev_camera_height_m": 2.2
+      }
+    }
+  },
+  "protocol": {
+    "protocol_version": "mri-formal-v1.4",
+    "scene_splits": {
+      "train": [
+        "v3_sc0_staging_00",
+        "v3_sc1_staging_00"
+      ],
+      "val": [
+        "v3_sc2_staging_00"
+      ],
+      "test": [
+        "v3_sc3_staging_00"
+      ]
+    },
+    "level2_regimes_by_split": {
+      "train": [
+        "id"
+      ],
+      "val": [
+        "id",
+        "ood"
+      ],
+      "test": [
+        "id",
+        "ood"
+      ]
+    },
+    "intervention_type_weights": {
+      "robot_translate": 0.25,
+      "robot_rotate": 0.2,
+      "object_translate": 0.25,
+      "object_place_relative": 0.2,
+      "object_remove": 0.1
+    },
+    "intervention_regimes": {
+      "id": {
+        "robot_translate_m": [
+          0.5,
+          1.0
+        ],
+        "robot_rotate_deg": [
+          -60.0,
+          -30.0,
+          30.0,
+          60.0
+        ],
+        "object_translate_m": [
+          0.5,
+          1.0
+        ],
+        "object_place_relative_m": [
+          0.5,
+          1.0
+        ]
+      },
+      "ood": {
+        "robot_translate_m": [
+          0.75,
+          1.5
+        ],
+        "robot_rotate_deg": [
+          -90.0,
+          -45.0,
+          45.0,
+          90.0
+        ],
+        "object_translate_m": [
+          0.75,
+          1.5
+        ],
+        "object_place_relative_m": [
+          0.75,
+          1.5
+        ]
+      }
+    },
+    "minimum_target_visible_observers": 1,
+    "benchmark_visibility_min_pixels": 64,
+    "seed_derivation": "sha256(base_seed|scene|state|regime|slot|attempt)[:32-bit]"
+  },
+  "split_unit": "replicacad_macro_furniture_layout_family",
+  "scene_splits": {
+    "train": [
+      "v3_sc0_staging_00",
+      "v3_sc1_staging_00"
+    ],
+    "val": [
+      "v3_sc2_staging_00"
+    ],
+    "test": [
+      "v3_sc3_staging_00"
+    ]
+  },
+  "states": [
+    "scenes/v3_sc0_staging_00/states/state_000001",
+    "scenes/v3_sc1_staging_00/states/state_000001",
+    "scenes/v3_sc2_staging_00/states/state_000001",
+    "scenes/v3_sc3_staging_00/states/state_000001",
+    "scenes/v3_sc0_staging_00/states/state_after_000001_001_id",
+    "scenes/v3_sc1_staging_00/states/state_after_000001_001_id",
+    "scenes/v3_sc2_staging_00/states/state_after_000001_001_id",
+    "scenes/v3_sc2_staging_00/states/state_after_000001_001_ood",
+    "scenes/v3_sc3_staging_00/states/state_after_000001_001_id",
+    "scenes/v3_sc3_staging_00/states/state_after_000001_001_ood"
+  ],
+  "interventions": [
+    "interventions/v3_sc0_staging_00/edit_000001_001_id.json",
+    "interventions/v3_sc1_staging_00/edit_000001_001_id.json",
+    "interventions/v3_sc2_staging_00/edit_000001_001_id.json",
+    "interventions/v3_sc2_staging_00/edit_000001_001_ood.json",
+    "interventions/v3_sc3_staging_00/edit_000001_001_id.json",
+    "interventions/v3_sc3_staging_00/edit_000001_001_ood.json"
+  ],
+  "factual_states": [
+    "scenes/v3_sc0_staging_00/states/state_000001",
+    "scenes/v3_sc1_staging_00/states/state_000001",
+    "scenes/v3_sc2_staging_00/states/state_000001",
+    "scenes/v3_sc3_staging_00/states/state_000001"
+  ],
+  "intervention_derived_states": [
+    "scenes/v3_sc0_staging_00/states/state_after_000001_001_id",
+    "scenes/v3_sc1_staging_00/states/state_after_000001_001_id",
+    "scenes/v3_sc2_staging_00/states/state_after_000001_001_id",
+    "scenes/v3_sc2_staging_00/states/state_after_000001_001_ood",
+    "scenes/v3_sc3_staging_00/states/state_after_000001_001_id",
+    "scenes/v3_sc3_staging_00/states/state_after_000001_001_ood"
+  ],
+  "counts": {
+    "factual_states": 4,
+    "intervention_derived_states": 6,
+    "interventions": 6
+  }
+}

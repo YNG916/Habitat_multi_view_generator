@@ -45,6 +45,8 @@ def load_world_state(state_dir: Path) -> WorldState:
         parent_state_id=metadata.get("parent_state_id") or "",
         intervention=metadata.get("intervention") or {},
         geometry_validation=metadata.get("geometry_validation") or {},
+        dataset_source=metadata.get("dataset_source", "hssd"),
+        floor_id=metadata.get("floor_id", "floor_00"),
     )
 
 

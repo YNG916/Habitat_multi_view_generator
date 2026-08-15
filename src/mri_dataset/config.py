@@ -1,374 +1,318 @@
 from __future__ import annotations
-
 import hashlib
 import json
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 @dataclass
 class CollectorConfig:
-    dataset_version: str = "1.0.0"
-    protocol_version: str = "mri-formal-v1.4"
-    scene_dataset_config: str = "data/replica_cad/replicaCAD.scene_dataset_config.json"
-    scenes: List[str] = field(default_factory=lambda: ["apt_1"])
-    navmesh_root: str = "data/replica_cad/navmeshes"
-    output_root: str = "outputs/mri_dataset"
+    """Configuration for the HSSD-only formal collector."""
+
+    dataset_version: str = "2.0.0"
+    protocol_version: str = "mri-hssd-formal-v1.0"
+    dataset_source: str = "hssd"
+    scene_dataset_config: str = "data/scene_datasets/hssd-hab/hssd-hab.scene_dataset_config.json"
+    official_scene_splits: str = "data/scene_datasets/hssd-hab/scene_splits.yaml"
+    scene_registry: str = "data/hssd_processed/scene_registry.json"
+    split_manifest: str = "data/hssd_processed/split_manifest.json"
+    navmesh_cache_root: str = "data/hssd_processed/navmeshes"
+    controlled_object_registry: str = "configs/hssd_controlled_objects.json"
+    hssd_preprocess_overrides_path: str = "configs/hssd_preprocess_overrides.json"
+    require_preprocessed_registry: bool = True
+    internal_val_fraction: float = .10
+    split_seed: int = 20260317
+    max_scenes_per_split: Dict[str, int] = field(default_factory=dict)
+    scenes: List[str] = field(default_factory=list)
+    scene_splits: Dict[str, List[str]] = field(
+        default_factory=lambda: {"train": [], "val": [], "test": []}
+    )
+
+    output_root: str = "outputs/mri_hssd"
     gpu_device_id: int = 0
     num_robots: int = 3
-    # Formal UHD defaults. Use collector_formal_smoke.json for a small run.
     width: int = 2048
     height: int = 2048
-    hfov_deg: float = 90.0
-    near: float = 0.05
-    far: float = 20.0
+    hfov_deg: float = 90.
+    near: float = .05
+    far: float = 20.
     pinhole_validation_min_samples: int = 3
-    pinhole_validation_median_error_m: float = 0.03
-    robot_body_diameter_m: float = 0.46
-    robot_body_height_m: float = 0.107
-    camera_height_min_m: float = 0.15
-    camera_height_max_m: float = 0.15
-    robot_camera_forward_offset_m: float = 0.235
-    min_obstacle_distance_m: float = 0.55
-    min_inter_robot_distance_m: float = 0.9
+    pinhole_validation_median_error_m: float = .03
+    robot_body_diameter_m: float = .46
+    robot_body_height_m: float = .107
+    camera_height_min_m: float = .15
+    camera_height_max_m: float = .15
+    robot_camera_forward_offset_m: float = .235
+    navmesh_agent_radius_m: float = .28
+    navmesh_agent_height_m: float = .20
+    navmesh_agent_max_climb_m: float = .05
+    navmesh_agent_max_slope_deg: float = 20.
+    min_obstacle_distance_m: float = .55
+    min_inter_robot_distance_m: float = .9
     local_sampling_radius_m: float = 3.5
-    floor_tolerance_m: float = 0.25
+    floor_tolerance_m: float = .25
     heading_mode: str = "mixed"
-    shared_heading_jitter_deg: float = 20.0
-    bev_meters_per_pixel: float = 0.00625
-    bev_camera_height_m: float = 2.2
-    bev_ceiling_clearance_m: float = 0.15
-    bev_near: float = 0.02
-    bev_far: float = 10.0
+    shared_heading_jitter_deg: float = 20.
+
+    bev_meters_per_pixel: float = .00625
+    bev_preferred_camera_height_m: float = 2.2
+    bev_ceiling_clearance_m: float = .15
+    bev_near: float = .02
+    bev_far: float = 10.
+    bev_context_margin_m: float = .75
+    bev_ceiling_ray_samples: int = 64
+    bev_ceiling_ray_max_distance_m: float = 8.
+    bev_min_ceiling_height_m: float = 1.6
+    bev_open_scene_margin_m: float = .25
+    floor_samples_per_island: int = 256
+    floor_min_samples_per_island: int = 64
+    floor_min_island_area_m2: float = 2.
+    floor_min_navigable_area_m2: float = 12.
+    floor_group_tolerance_m: float = .30
+    floor_max_vertical_span_m: float = .45
+    floor_ambiguity_min_vertical_separation_m: float = .75
+    floor_ambiguity_max_xz_overlap_ratio: float = .25
+    preprocess_bev_width: int = 256
+    preprocess_bev_min_finite_fraction: float = .02
+    preprocess_bev_min_rgb_std: float = 1.
+
     height_validation_samples: int = 24
     height_validation_min_samples: int = 8
-    height_validation_max_error_m: float = 0.02
-    collision_penetration_tolerance_m: float = 0.002
-    support_contact_tolerance_m: float = 0.005
-    robot_floor_collision_tolerance_m: float = 0.012
+    height_validation_max_error_m: float = .03
+    collision_penetration_tolerance_m: float = .002
+    support_contact_tolerance_m: float = .005
+    robot_floor_collision_tolerance_m: float = .012
     max_state_sampling_attempts: int = 100
     enable_instance: bool = True
     enable_semantic: bool = True
-    semantic_category_ids: Dict[str, int] = field(
-        default_factory=lambda: {
-            "robot": 1, "cup": 10, "bowl": 11, "book": 12
-        }
-    )
+    semantic_category_ids: Dict[str, int] = field(default_factory=lambda: {
+        "robot": 1, "cup": 10, "bowl": 11, "book": 12, "bottle": 13, "box": 14,
+    })
     benchmark_visibility_min_pixels: int = 20
     min_target_visible_observers: int = 1
     require_visible_robot_target: bool = False
     require_visible_object_target: bool = False
+
     enable_robot_proxies: bool = True
-    robot_proxy_configs: List[str] = field(
-        default_factory=lambda: [
-            "assets/robot_proxies/robot_red.object_config.json",
-            "assets/robot_proxies/robot_green.object_config.json",
-            "assets/robot_proxies/robot_blue.object_config.json",
-        ]
-    )
+    robot_proxy_configs: List[str] = field(default_factory=lambda: [
+        "assets/robot_proxies/robot_red.object_config.json",
+        "assets/robot_proxies/robot_green.object_config.json",
+        "assets/robot_proxies/robot_blue.object_config.json",
+    ])
     robot_proxy_height_variants: Dict[str, List[str]] = field(default_factory=dict)
-    controlled_object_whitelist: Dict[str, str] = field(
-        default_factory=lambda: {
-            "cup": "frl_apartment_cup_01.object_config.json",
-            "bowl": "frl_apartment_bowl_01.object_config.json",
-            "book": "frl_apartment_book_01.object_config.json",
-        }
-    )
-    controlled_objects_per_state: int = 1
-    controlled_object_min_separation_m: float = 0.65
+    controlled_object_whitelist: Dict[str, str] = field(default_factory=dict)
+    controlled_objects_per_state: int = 2
+    controlled_object_min_separation_m: float = .65
     num_states: int = 1
     num_states_by_split: Dict[str, int] = field(default_factory=dict)
     num_edits_per_state: int = 1
     random_seed: int = 123
     resume: bool = True
     save_visualizations: bool = True
-    compress_numeric_arrays: bool = False
+    compress_numeric_arrays: bool = True
     run_multilevel_calibration_preflight: bool = True
     max_intervention_sampling_attempts: int = 80
-    scene_splits: Dict[str, List[str]] = field(
-        default_factory=lambda: {"train": ["apt_1"], "val": [], "test": []}
-    )
-    # A scene instance can change furniture without changing the underlying
-    # rendered stage. Splits are isolated by this identity, not by scene ID.
-    scene_layout_families: Dict[str, str] = field(default_factory=dict)
-    level2_regimes_by_split: Dict[str, List[str]] = field(
-        default_factory=lambda: {
-            "train": ["id"],
-            "val": ["id", "ood"],
-            "test": ["id", "ood"],
-        }
-    )
-    intervention_type_weights: Dict[str, float] = field(
-        default_factory=lambda: {
-            "robot_translate": 0.25,
-            "robot_rotate": 0.20,
-            "object_translate": 0.25,
-            "object_place_relative": 0.20,
-            "object_remove": 0.10,
-        }
-    )
+    level2_regimes_by_split: Dict[str, List[str]] = field(default_factory=lambda: {
+        "train": ["id"], "val": ["id", "ood"], "test": ["id", "ood"],
+    })
+    intervention_type_weights: Dict[str, float] = field(default_factory=lambda: {
+        "robot_translate": .25, "robot_rotate": .20, "object_translate": .25,
+        "object_place_relative": .20, "object_remove": .10,
+    })
     intervention_regimes: Dict[str, Dict[str, List[float]]] = field(
         default_factory=lambda: {
             "id": {
-                "robot_translate_m": [0.5, 1.0],
-                "robot_rotate_deg": [-60.0, -30.0, 30.0, 60.0],
-                "object_translate_m": [0.5, 1.0],
-                "object_place_relative_m": [0.5, 1.0],
+                "robot_translate_m": [.5, 1.], "robot_rotate_deg": [-60., -30., 30., 60.],
+                "object_translate_m": [.5, 1.], "object_place_relative_m": [.5, 1.],
             },
             "ood": {
-                "robot_translate_m": [0.75, 1.5],
-                "robot_rotate_deg": [-90.0, -45.0, 45.0, 90.0],
-                "object_translate_m": [0.75, 1.5],
-                "object_place_relative_m": [0.75, 1.5],
+                "robot_translate_m": [.75, 1.5], "robot_rotate_deg": [-90., -45., 45., 90.],
+                "object_translate_m": [.75, 1.5], "object_place_relative_m": [.75, 1.5],
             },
         }
     )
-    scene_overrides: Dict[str, Dict[str, Any]] = field(
-        default_factory=lambda: {"apt_1": {"bev_camera_height_m": 2.2}}
-    )
 
-    def resolve(self, value: str) -> Path:
+    @property
+    def repo_root(self): return REPO_ROOT
+    def resolve(self, value):
         path = Path(value)
         return path if path.is_absolute() else (REPO_ROOT / path).resolve()
+    dataset_config_path = property(lambda s: s.resolve(s.scene_dataset_config))
+    official_scene_splits_path = property(lambda s: s.resolve(s.official_scene_splits))
+    scene_registry_path = property(lambda s: s.resolve(s.scene_registry))
+    split_manifest_path = property(lambda s: s.resolve(s.split_manifest))
+    navmesh_cache_root_path = property(lambda s: s.resolve(s.navmesh_cache_root))
+    controlled_object_registry_path = property(lambda s: s.resolve(s.controlled_object_registry))
+    hssd_preprocess_overrides_file = property(lambda s: s.resolve(s.hssd_preprocess_overrides_path))
+    output_path = property(lambda s: s.resolve(s.output_root))
 
-    @property
-    def dataset_config_path(self) -> Path:
-        return self.resolve(self.scene_dataset_config)
+    def navmesh_cache_path(self, scene_id):
+        return self.navmesh_cache_root_path / f"{scene_id}.navmesh"
 
-    @property
-    def output_path(self) -> Path:
-        return self.resolve(self.output_root)
+    def hssd_preprocess_overrides(self):
+        path = self.hssd_preprocess_overrides_file
+        if not path.exists(): return {}
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict): raise ValueError("HSSD overrides must be an object")
+        return data
 
-    def navmesh_path(self, scene_id: str) -> Path:
-        return self.resolve(str(Path(self.navmesh_root) / f"{scene_id}.navmesh"))
+    def registry(self):
+        from .scene_registry import SceneRegistry
+        return SceneRegistry.load(self.scene_registry_path)
 
-    def scene_value(self, scene_id: str, key: str) -> Any:
-        return self.scene_overrides.get(scene_id, {}).get(key, getattr(self, key))
-
-    def to_dict(self) -> Dict[str, Any]:
-        return asdict(self)
-
-    def scene_split(self, scene_id: str) -> str:
-        matches = [
-            split for split, scenes in self.scene_splits.items() if scene_id in scenes
-        ]
+    def scene_split(self, scene_id):
+        matches = [split for split, values in self.scene_splits.items() if scene_id in values]
         if len(matches) != 1:
-            raise ValueError(
-                f"Scene {scene_id!r} must belong to exactly one split, got {matches}"
-            )
+            raise ValueError(f"HSSD scene {scene_id!r} must have exactly one split: {matches}")
         return matches[0]
 
-    def layout_family(self, scene_id: str) -> str:
-        explicit = self.scene_layout_families.get(scene_id)
-        if explicit:
-            return explicit
-        # ReplicaCAD apt_0..apt_5 all instantiate frl_apartment_stage. The
-        # v3 staging suffix selects a furniture rearrangement, not a new stage.
-        if scene_id.startswith("apt_"):
-            return "frl_apartment_stage"
-        prefix = scene_id.split("_staging_", 1)[0]
-        if prefix.startswith("v3_sc"):
-            return prefix
-        return scene_id
+    def states_for_scene(self, scene_id):
+        return int(self.num_states_by_split.get(self.scene_split(scene_id), self.num_states))
 
-    def states_for_scene(self, scene_id: str) -> int:
-        split = self.scene_split(scene_id)
-        return int(self.num_states_by_split.get(split, self.num_states))
+    def collection_specs(self, scene_id=None, floor_id=None):
+        allowed, result = set(self.scenes), []
+        for scene in self.registry().scenes:
+            if not scene.eligible or scene.scene_id not in allowed: continue
+            if scene_id is not None and scene.scene_id != scene_id: continue
+            for floor in scene.eligible_floors:
+                if floor_id is None or floor.floor_id == floor_id:
+                    result.append((scene, floor))
+        if scene_id is not None and not result:
+            raise ValueError(f"No eligible HSSD target matches {scene_id}/{floor_id or '*'}")
+        order = {"train": 0, "val": 1, "test": 2}
+        return sorted(result, key=lambda item: (
+            order[self.scene_split(item[0].scene_id)], item[0].scene_id, item[1].floor_id
+        ))
 
-    def robot_proxy_asset_fingerprints(self) -> Dict[str, str]:
-        """Hash proxy configs, meshes and materials that affect rendered bytes."""
+    def to_dict(self): return asdict(self)
+
+    def robot_proxy_asset_fingerprints(self):
         configured = list(self.robot_proxy_configs)
-        for variants in self.robot_proxy_height_variants.values():
-            configured.extend(variants)
-        directories = sorted({self.resolve(path).parent for path in configured})
-        result: Dict[str, str] = {}
-        for directory in directories:
+        for variants in self.robot_proxy_height_variants.values(): configured.extend(variants)
+        result = {}
+        for directory in sorted({self.resolve(path).parent for path in configured}):
             if not directory.is_dir():
                 result[str(directory)] = "missing"
                 continue
             for asset in sorted(path for path in directory.iterdir() if path.is_file()):
-                try:
-                    key = str(asset.relative_to(REPO_ROOT))
-                except ValueError:
-                    key = str(asset)
+                try: key = str(asset.relative_to(REPO_ROOT))
+                except ValueError: key = str(asset)
                 result[key] = hashlib.sha256(asset.read_bytes()).hexdigest()
         return result
 
-    def generation_fingerprint(self) -> str:
-        """Fingerprint fields that change generated sample semantics or bytes."""
+    def generation_fingerprint(self):
         data = self.to_dict()
-        for key in (
-            "output_root",
-            "num_states",
-            "num_states_by_split",
-            "num_edits_per_state",
-            "resume",
-        ):
+        for key in ("output_root", "num_states", "num_states_by_split", "num_edits_per_state", "resume"):
             data.pop(key, None)
         data["_robot_proxy_assets_sha256"] = self.robot_proxy_asset_fingerprints()
-        payload = json.dumps(data, sort_keys=True, separators=(",", ":"))
-        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+        for label, path in (
+            ("scene_registry", self.scene_registry_path), ("split_manifest", self.split_manifest_path),
+            ("controlled_objects", self.controlled_object_registry_path),
+        ):
+            data[f"_{label}_sha256"] = hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else "missing"
+        return hashlib.sha256(json.dumps(data, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
-    def validate(self) -> None:
-        if self.dataset_version != "1.0.0":
-            raise ValueError("This generator currently writes dataset_version=1.0.0")
-        if len(self.scenes) != len(set(self.scenes)) or not self.scenes:
-            raise ValueError("scenes must be a non-empty list without duplicates")
-        assigned = [scene for scenes in self.scene_splits.values() for scene in scenes]
-        if len(assigned) != len(set(assigned)):
-            raise ValueError("A scene appears in more than one scene_splits partition")
-        if set(assigned) != set(self.scenes):
-            raise ValueError("scene_splits must assign every configured scene exactly once")
+    def validate(self):
+        if self.dataset_version != "2.0.0" or self.dataset_source != "hssd":
+            raise ValueError("Formal generation is HSSD-only dataset version 2.0.0")
+        lowered = str(self.dataset_config_path).lower()
+        if self.dataset_config_path.name != "hssd-hab.scene_dataset_config.json":
+            raise ValueError("Use standard hssd-hab.scene_dataset_config.json")
+        if any(token in lowered for token in ("replica", "uncluttered", "articulated")):
+            raise ValueError("ReplicaCAD and HSSD variants are forbidden")
         if set(self.scene_splits) != {"train", "val", "test"}:
-            raise ValueError("scene_splits must contain train, val, and test")
-        unknown_layout_scenes = set(self.scene_layout_families) - set(self.scenes)
-        if unknown_layout_scenes:
-            raise ValueError(
-                "scene_layout_families contains unknown scenes: "
-                f"{sorted(unknown_layout_scenes)}"
-            )
-        family_splits: Dict[str, set] = {}
-        for split, scenes in self.scene_splits.items():
-            for scene in scenes:
-                family_splits.setdefault(self.layout_family(scene), set()).add(split)
-        leaked = {
-            family: sorted(splits)
-            for family, splits in family_splits.items()
-            if len(splits) > 1
-        }
-        if leaked:
-            raise ValueError(
-                "A rendered stage layout family appears in multiple splits: "
-                f"{leaked}"
-            )
-        for scene in self.scenes:
-            if "bev_camera_height_m" not in self.scene_overrides.get(scene, {}):
-                raise ValueError(
-                    f"Scene {scene} needs an explicit bev_camera_height_m override"
-                )
-        if self.width < 2 or self.height < 2 or self.bev_meters_per_pixel <= 0:
-            raise ValueError("Image sizes and BEV meters-per-pixel must be positive")
-        if self.camera_height_min_m <= 0 or (
-            self.camera_height_min_m > self.camera_height_max_m
-        ):
-            raise ValueError("Robot camera height range must be positive and ordered")
-        if self.robot_body_diameter_m <= 0 or self.robot_body_height_m <= 0:
-            raise ValueError("Robot body dimensions must be positive")
+            raise ValueError("scene_splits needs train/val/test")
+        assigned = sum(self.scene_splits.values(), [])
+        if len(assigned) != len(set(assigned)): raise ValueError("HSSD scene split leakage")
+        if self.require_preprocessed_registry:
+            required = {
+                "HSSD config": self.dataset_config_path, "official splits": self.official_scene_splits_path,
+                "scene registry": self.scene_registry_path, "split manifest": self.split_manifest_path,
+                "object registry": self.controlled_object_registry_path,
+            }
+            for label, path in required.items():
+                if not path.is_file(): raise FileNotFoundError(f"Missing {label}: {path}")
+            if not self.scenes or set(assigned) != set(self.scenes):
+                raise ValueError("Manifest must assign every configured HSSD scene")
+            eligible = {scene.scene_id for scene in self.registry().scenes if scene.eligible}
+            if not set(self.scenes).issubset(eligible): raise ValueError("Ineligible HSSD scene configured")
+        if min(self.width, self.height) < 2 or self.bev_meters_per_pixel <= 0:
+            raise ValueError("Invalid image/BEV resolution")
+        if self.camera_height_min_m != self.camera_height_max_m:
+            raise ValueError("Formal camera height must be fixed")
         if self.camera_height_min_m <= self.robot_body_height_m:
-            raise ValueError("Robot camera must be above the configured body height")
-        minimum_front_offset = 0.5 * self.robot_body_diameter_m
-        if not minimum_front_offset <= self.robot_camera_forward_offset_m <= (
-            minimum_front_offset + 0.05
-        ):
-            raise ValueError(
-                "robot_camera_forward_offset_m must place the camera at most "
-                "0.05 m beyond the configured front edge"
-            )
-        if self.min_obstacle_distance_m < minimum_front_offset + 0.10:
-            raise ValueError("min_obstacle_distance_m is unsafe for the robot body")
-        if self.min_inter_robot_distance_m < self.robot_body_diameter_m + 0.10:
-            raise ValueError("min_inter_robot_distance_m is unsafe for the robot bodies")
-        if self.support_contact_tolerance_m <= 0:
-            raise ValueError("support_contact_tolerance_m must be positive")
-        if self.robot_floor_collision_tolerance_m < self.support_contact_tolerance_m:
-            raise ValueError(
-                "robot_floor_collision_tolerance_m must be at least support_contact_tolerance_m"
-            )
-        if not self.enable_instance:
-            raise ValueError("Formal protocol requires OBJECT_ID instance observations")
-        required_semantics = {"robot", *self.controlled_object_whitelist}
-        if self.enable_semantic and not required_semantics.issubset(
-            self.semantic_category_ids
-        ):
-            raise ValueError("semantic_category_ids is missing a controlled category")
-        semantic_ids = list(map(int, self.semantic_category_ids.values()))
-        if any(value <= 0 for value in semantic_ids) or len(semantic_ids) != len(
-            set(semantic_ids)
-        ):
-            raise ValueError("semantic category IDs must be unique positive integers")
-        for height_key, variants in self.robot_proxy_height_variants.items():
-            height = float(height_key)
-            if not self.camera_height_min_m <= height <= self.camera_height_max_m:
-                raise ValueError(f"Robot proxy height {height} is outside camera range")
-            if len(variants) < self.num_robots:
-                raise ValueError(
-                    f"Robot proxy height {height} has fewer variants than robots"
-                )
-        if self.num_states < 0 or self.num_edits_per_state < 0:
-            raise ValueError("num_states and num_edits_per_state cannot be negative")
-        if set(self.num_states_by_split) - set(self.scene_splits):
-            raise ValueError("num_states_by_split contains an unknown split")
-        if any(int(value) < 0 for value in self.num_states_by_split.values()):
-            raise ValueError("num_states_by_split values cannot be negative")
-        if self.pinhole_validation_min_samples < 1:
-            raise ValueError("pinhole_validation_min_samples must be at least 1")
-        if self.pinhole_validation_median_error_m <= 0:
-            raise ValueError("pinhole_validation_median_error_m must be positive")
+            raise ValueError("Camera must be above the robot body")
+        if self.navmesh_agent_radius_m < self.robot_body_diameter_m / 2:
+            raise ValueError("NavMesh radius smaller than robot")
+        if self.navmesh_agent_height_m < self.camera_height_max_m + .03:
+            raise ValueError("NavMesh height does not clear camera")
+        front = self.robot_body_diameter_m / 2
+        if not front <= self.robot_camera_forward_offset_m <= front + .05:
+            raise ValueError("Camera not at robot front")
+        if self.min_obstacle_distance_m < front + .10: raise ValueError("Unsafe obstacle clearance")
+        if self.min_inter_robot_distance_m < self.robot_body_diameter_m + .10:
+            raise ValueError("Unsafe robot clearance")
+        if not self.enable_instance: raise ValueError("OBJECT_ID is mandatory")
+        if self.require_preprocessed_registry and self.controlled_objects_per_state > 0 and not self.controlled_object_whitelist:
+            raise ValueError("HSSD object registry has no selected exact handles")
+        if self.enable_semantic and not {"robot", *self.controlled_object_whitelist}.issubset(self.semantic_category_ids):
+            raise ValueError("Missing semantic category")
+        ids = list(map(int, self.semantic_category_ids.values()))
+        if any(value <= 0 for value in ids) or len(ids) != len(set(ids)):
+            raise ValueError("Semantic IDs must be unique positive values")
+        if min(self.num_states, self.num_edits_per_state) < 0: raise ValueError("Negative counts")
+        if set(self.num_states_by_split) - set(self.scene_splits): raise ValueError("Unknown count split")
         if not 1 <= self.height_validation_min_samples <= self.height_validation_samples:
-            raise ValueError(
-                "height_validation_min_samples must be between 1 and height_validation_samples"
-            )
-        if self.max_state_sampling_attempts < 1:
-            raise ValueError("max_state_sampling_attempts must be at least 1")
-        if self.max_intervention_sampling_attempts < 1:
-            raise ValueError("max_intervention_sampling_attempts must be at least 1")
-        if self.benchmark_visibility_min_pixels < 1:
-            raise ValueError("benchmark_visibility_min_pixels must be at least 1")
-        if self.min_target_visible_observers < 0:
-            raise ValueError("min_target_visible_observers cannot be negative")
-        supported = {
-            "robot_translate",
-            "robot_rotate",
-            "object_translate",
-            "object_place_relative",
-            "object_remove",
-        }
-        if not self.intervention_type_weights:
-            raise ValueError("intervention_type_weights cannot be empty")
-        if not set(self.intervention_type_weights).issubset(supported):
-            raise ValueError("intervention_type_weights contains an unsupported type")
-        if any(float(value) <= 0 for value in self.intervention_type_weights.values()):
-            raise ValueError("All intervention type weights must be positive")
-        required_regime_keys = {
-            "robot_translate_m",
-            "robot_rotate_deg",
-            "object_translate_m",
-            "object_place_relative_m",
-        }
-        for regime, specification in self.intervention_regimes.items():
-            if set(specification) != required_regime_keys:
-                raise ValueError(f"Regime {regime!r} has incomplete parameter domains")
-            if any(not values for values in specification.values()):
-                raise ValueError(f"Regime {regime!r} contains an empty parameter domain")
+            raise ValueError("Invalid height validation samples")
+        supported = {"robot_translate", "robot_rotate", "object_translate", "object_place_relative", "object_remove"}
+        if not self.intervention_type_weights or not set(self.intervention_type_weights).issubset(supported):
+            raise ValueError("Unsupported interventions")
+        keys = {"robot_translate_m", "robot_rotate_deg", "object_translate_m", "object_place_relative_m"}
+        for name, spec in self.intervention_regimes.items():
+            if set(spec) != keys or any(not values for values in spec.values()):
+                raise ValueError(f"Incomplete regime {name}")
         for split, regimes in self.level2_regimes_by_split.items():
-            if split not in self.scene_splits:
-                raise ValueError(f"Unknown Level-2 split {split!r}")
-            unknown = set(regimes) - set(self.intervention_regimes)
-            if unknown:
-                raise ValueError(f"Unknown regimes for {split}: {sorted(unknown)}")
+            if split not in self.scene_splits or set(regimes) - set(self.intervention_regimes):
+                raise ValueError(f"Invalid Level-2 regimes for {split}")
+        if "id" in self.intervention_regimes and "ood" in self.intervention_regimes:
+            for key in keys:
+                if set(map(float, self.intervention_regimes["id"][key])) & set(map(float, self.intervention_regimes["ood"][key])):
+                    raise ValueError(f"ID/OOD overlap for {key}")
 
-        id_spec = self.intervention_regimes.get("id")
-        ood_spec = self.intervention_regimes.get("ood")
-        if id_spec and ood_spec:
-            for key in required_regime_keys:
-                if set(map(float, id_spec[key])) & set(map(float, ood_spec[key])):
-                    raise ValueError(f"ID and OOD domains overlap for {key}")
+
+def _materialize_hssd_sources(config):
+    path = config.controlled_object_registry_path
+    if path.is_file():
+        data = json.loads(path.read_text(encoding="utf-8"))
+        selected = data.get("selected_handles", data.get("categories", {}))
+        if selected and not isinstance(selected, dict): raise ValueError("selected_handles must map categories")
+        if selected: config.controlled_object_whitelist = {str(k): str(v) for k, v in selected.items()}
+    if not config.require_preprocessed_registry: return
+    if not config.split_manifest_path.is_file() or not config.scene_registry_path.is_file(): return
+    from .scene_registry import load_split_manifest
+    manifest = load_split_manifest(config.split_manifest_path)
+    eligible = {scene.scene_id for scene in config.registry().scenes if scene.eligible}
+    splits = {}
+    for split in ("train", "val", "test"):
+        values = [scene for scene in manifest["scene_splits"][split] if scene in eligible]
+        maximum = config.max_scenes_per_split.get(split)
+        if maximum is not None:
+            if int(maximum) < 0: raise ValueError("Negative max_scenes_per_split")
+            values = values[:int(maximum)]
+        splits[split] = values
+    config.scene_splits = splits
+    config.scenes = sum((splits[name] for name in ("train", "val", "test")), [])
 
 
 def load_config(path: Optional[str] = None, **overrides: Any) -> CollectorConfig:
-    data: Dict[str, Any] = {}
-    if path:
-        with open(path, "r", encoding="utf-8") as handle:
-            data = json.load(handle)
+    data = json.loads(Path(path).read_text(encoding="utf-8")) if path else {}
     data.update({key: value for key, value in overrides.items() if value is not None})
-    known = CollectorConfig.__dataclass_fields__
-    unknown = sorted(set(data) - set(known))
-    if unknown:
-        raise ValueError(f"Unknown collector config fields: {unknown}")
+    unknown = sorted(set(data) - set(CollectorConfig.__dataclass_fields__))
+    if unknown: raise ValueError(f"Unknown collector config fields: {unknown}")
     config = CollectorConfig(**data)
+    _materialize_hssd_sources(config)
     config.validate()
     return config

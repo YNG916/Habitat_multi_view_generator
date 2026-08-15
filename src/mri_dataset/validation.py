@@ -278,11 +278,11 @@ def validate_dataset_manifest(root: Path, config=None) -> List[str]:
         return [f"cannot read dataset.json: {exc}"]
     disk_states = {
         str(path.parent.relative_to(root))
-        for path in root.glob("scenes/*/states/*/state.json")
+        for path in root.glob("scenes/*/floors/*/states/*/state.json")
     }
     disk_edits = {
         str(path.relative_to(root))
-        for path in root.glob("interventions/*/edit_*.json")
+        for path in root.glob("interventions/*/*/edit_*.json")
     }
     indexed_states = set(dataset.get("states", []))
     indexed_edits = set(dataset.get("interventions", []))
@@ -316,12 +316,10 @@ def validate_dataset_manifest(root: Path, config=None) -> List[str]:
         split_after_sets.append(set(payload.get("after_states", [])))
         split_edit_sets.append(set(payload.get("interventions", [])))
         if config is not None:
-            expected_families = {
-                config.layout_family(scene) for scene in config.scene_splits[split]
-            }
-            actual_families = set(payload.get("layout_families", []))
-            if not actual_families.issubset(expected_families):
-                errors.append(f"{split} contains a layout family assigned elsewhere")
+            expected_scenes = set(config.scene_splits[split])
+            actual_scenes = set(payload.get("scenes", []))
+            if not actual_scenes.issubset(expected_scenes):
+                errors.append(f"{split} contains an HSSD scene assigned elsewhere")
         for regime, regime_payload in payload.get("level2_by_regime", {}).items():
             regime_path = root / f"splits/level2_{split}_{regime}.json"
             if not regime_path.exists():
@@ -371,30 +369,39 @@ def _regime_parameter_value(intervention) -> tuple:
 
 def validate_dataset(root: Path, config=None) -> Dict[str, object]:
     root = Path(root)
-    state_paths = sorted(root.glob("scenes/*/states/*/state.json"))
+    state_paths = sorted(root.glob("scenes/*/floors/*/states/*/state.json"))
     report: Dict[str, object] = {"root": str(root), "states_checked": len(state_paths), "errors": {}}
     manifest_errors = validate_dataset_manifest(root, config)
     if manifest_errors:
         report["errors"]["_manifest"] = manifest_errors
     active_backend = None
-    active_scene = None
+    active_target = None
 
-    def backend_for_scene(scene_id: str):
-        nonlocal active_backend, active_scene
+    def backend_for_target(scene_id: str, floor_id: str):
+        nonlocal active_backend, active_target
         if config is None:
             return None
-        if active_scene != scene_id:
+        target = (scene_id, floor_id)
+        if active_target != target:
             if active_backend is not None:
                 active_backend.close()
             from .habitat_backend import HabitatBackend
-            active_backend = HabitatBackend(config, scene_id)
-            active_scene = scene_id
+            scene = config.registry().scene(scene_id)
+            active_backend = HabitatBackend(config, scene, scene.floor(floor_id))
+            active_target = target
         return active_backend
 
     try:
         for state_json in state_paths:
-            scene_id = state_json.parents[2].name
-            backend = backend_for_scene(scene_id)
+            metadata = read_json(state_json)
+            scene_id = metadata["scene_id"]
+            floor_id = metadata["floor_id"]
+            if metadata.get("dataset_source") != "hssd":
+                report["errors"][str(state_json.parent.relative_to(root))] = [
+                    "state dataset_source is not hssd"
+                ]
+                continue
+            backend = backend_for_target(scene_id, floor_id)
             pathfinder = backend.sim.pathfinder if backend is not None else None
             errors = validate_state_dir(
                 state_json.parent,
@@ -416,7 +423,7 @@ def validate_dataset(root: Path, config=None) -> Dict[str, object]:
             if config is not None:
                 from .state_io import load_world_state
                 world_state = load_world_state(state_json.parent)
-                backend = backend_for_scene(scene_id)
+                backend = backend_for_target(scene_id, floor_id)
                 for obj in world_state.objects:
                     if not obj.active:
                         continue
@@ -472,7 +479,7 @@ def validate_dataset(root: Path, config=None) -> Dict[str, object]:
                         )
             if errors:
                 report["errors"][str(state_json.parent.relative_to(root))] = errors
-        for edit_path in sorted(root.glob("interventions/*/edit_*.json")):
+        for edit_path in sorted(root.glob("interventions/*/*/edit_*.json")):
             edit = read_json(edit_path)
             relative_edit = str(edit_path.relative_to(root))
             edit_errors = []
@@ -518,7 +525,7 @@ def validate_dataset(root: Path, config=None) -> Dict[str, object]:
 
                 if intervention.type == "robot_translate":
                     if config is not None:
-                        backend = backend_for_scene(edit["scene_id"])
+                        backend = backend_for_target(edit["scene_id"], edit["floor_id"])
                         validate_robot_translation(
                             before,
                             after,

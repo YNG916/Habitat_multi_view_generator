@@ -1,0 +1,178 @@
+[
+  {
+    "instance_id": "object_001",
+    "category": "cup",
+    "asset_handle": "frl_apartment_cup_01.object_config.json",
+    "position_world": [
+      2.6094536781311035,
+      0.09041269719600675,
+      3.3180642127990723
+    ],
+    "quaternion_world_xyzw": [
+      0.0,
+      0.0,
+      0.0,
+      1.0
+    ],
+    "active": true,
+    "movable": true,
+    "semantic_id": 2001,
+    "bbox": {
+      "min_world": [
+        2.5127530619502068,
+        0.015343910455703713,
+        3.2214283496141434
+      ],
+      "max_world": [
+        2.728224404156208,
+        0.17578001916408537,
+        3.4136134535074234
+      ],
+      "dimensions_m": [
+        0.21547134220600128,
+        0.16043610870838165,
+        0.19218510389328003
+      ]
+    },
+    "visibility": {
+      "robot_01": {
+        "visible": false,
+        "geometrically_visible": false,
+        "benchmark_visible": false,
+        "benchmark_min_pixels": 64,
+        "visible_pixel_count": 0,
+        "method": "object_id_sensor"
+      },
+      "robot_02": {
+        "visible": true,
+        "geometrically_visible": true,
+        "benchmark_visible": true,
+        "benchmark_min_pixels": 64,
+        "visible_pixel_count": 1249,
+        "method": "object_id_sensor"
+      },
+      "robot_03": {
+        "visible": false,
+        "geometrically_visible": false,
+        "benchmark_visible": false,
+        "benchmark_min_pixels": 64,
+        "visible_pixel_count": 0,
+        "method": "object_id_sensor"
+      }
+    },
+    "T_world_from_object": [
+      [
+        1.0,
+        0.0,
+        0.0,
+        2.6094536781311035
+      ],
+      [
+        0.0,
+        1.0,
+        0.0,
+        0.09041269719600675
+      ],
+      [
+        0.0,
+        0.0,
+        1.0,
+        3.3180642127990723
+      ],
+      [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    ]
+  },
+  {
+    "instance_id": "object_002",
+    "category": "cup",
+    "asset_handle": "frl_apartment_cup_01.object_config.json",
+    "position_world": [
+      2.0287041664123535,
+      0.10059449672698972,
+      1.815583348274231
+    ],
+    "quaternion_world_xyzw": [
+      0.0,
+      0.0,
+      0.0,
+      1.0
+    ],
+    "active": true,
+    "movable": true,
+    "semantic_id": 2002,
+    "bbox": {
+      "min_world": [
+        1.9320035502314568,
+        0.025525709986686684,
+        1.718947485089302
+      ],
+      "max_world": [
+        2.147474892437458,
+        0.18596181869506834,
+        1.911132588982582
+      ],
+      "dimensions_m": [
+        0.21547134220600128,
+        0.16043610870838165,
+        0.19218510389328003
+      ]
+    },
+    "visibility": {
+      "robot_01": {
+        "visible": false,
+        "geometrically_visible": false,
+        "benchmark_visible": false,
+        "benchmark_min_pixels": 64,
+        "visible_pixel_count": 0,
+        "method": "object_id_sensor"
+      },
+      "robot_02": {
+        "visible": true,
+        "geometrically_visible": true,
+        "benchmark_visible": true,
+        "benchmark_min_pixels": 64,
+        "visible_pixel_count": 1725,
+        "method": "object_id_sensor"
+      },
+      "robot_03": {
+        "visible": false,
+        "geometrically_visible": false,
+        "benchmark_visible": false,
+        "benchmark_min_pixels": 64,
+        "visible_pixel_count": 0,
+        "method": "object_id_sensor"
+      }
+    },
+    "T_world_from_object": [
+      [
+        1.0,
+        0.0,
+        0.0,
+        2.0287041664123535
+      ],
+      [
+        0.0,
+        1.0,
+        0.0,
+        0.10059449672698972
+      ],
+      [
+        0.0,
+        0.0,
+        1.0,
+        1.815583348274231
+      ],
+      [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    ]
+  }
+]

@@ -28,18 +28,18 @@ def make_state(visible=True):
             "robot_01": {"benchmark_visible": visible, "visible_pixel_count": 100}
         },
     )
-    return WorldState("0.1.0", "state_000001", "apt_1", 0.0, 7, [robot], [obj])
+    return WorldState("0.1.0", "state_000001", "102815859", 0.0, 7, [robot], [obj])
 
 
 class FormalProtocolTests(unittest.TestCase):
     def setUp(self):
-        self.config = load_config()
+        self.config = load_config(require_preprocessed_registry=False)
         self.state = make_state()
 
     def test_stable_seed_is_repeatable_and_slot_sensitive(self):
-        first = stable_seed(123, "apt_1", "state_000001", "id", 1, 0)
-        self.assertEqual(first, stable_seed(123, "apt_1", "state_000001", "id", 1, 0))
-        self.assertNotEqual(first, stable_seed(123, "apt_1", "state_000001", "id", 2, 0))
+        first = stable_seed(123, "102815859", "state_000001", "id", 1, 0)
+        self.assertEqual(first, stable_seed(123, "102815859", "state_000001", "id", 1, 0))
+        self.assertNotEqual(first, stable_seed(123, "102815859", "state_000001", "id", 2, 0))
 
     def test_every_intervention_type_is_sampled_from_frozen_domain(self):
         for edit_type in self.config.intervention_type_weights:
@@ -64,34 +64,28 @@ class FormalProtocolTests(unittest.TestCase):
             sample_intervention(make_state(False), self.config, "id", 2)
 
     def test_operational_counts_do_not_change_generation_fingerprint(self):
-        changed = load_config(num_states=99, resume=False)
+        changed = load_config(num_states=99, resume=False, require_preprocessed_registry=False)
         self.assertEqual(
             self.config.generation_fingerprint(), changed.generation_fingerprint()
         )
 
 
-    def test_replica_scene_ids_are_grouped_by_real_stage_family(self):
-        self.assertEqual(
-            self.config.layout_family("apt_0"), "frl_apartment_stage"
-        )
-        self.assertEqual(
-            self.config.layout_family("apt_5"), "frl_apartment_stage"
-        )
-        self.assertEqual(
-            self.config.layout_family("v3_sc2_staging_00"), "v3_sc2"
-        )
-        self.assertEqual(
-            self.config.layout_family("v3_sc2_staging_19"), "v3_sc2"
-        )
-
-    def test_same_stage_family_cannot_cross_splits(self):
-        with self.assertRaisesRegex(ValueError, "layout family appears"):
+    def test_formal_config_rejects_nonstandard_hssd_variants(self):
+        with self.assertRaisesRegex(ValueError, "standard"):
             load_config(
-                scenes=["apt_0", "apt_5"],
-                scene_splits={"train": ["apt_0"], "val": ["apt_5"], "test": []},
-                scene_overrides={
-                    "apt_0": {"bev_camera_height_m": 2.2},
-                    "apt_5": {"bev_camera_height_m": 2.2},
+                require_preprocessed_registry=False,
+                scene_dataset_config="data/hssd-hab-uncluttered.scene_dataset_config.json",
+            )
+
+    def test_scene_id_split_leakage_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "leak"):
+            load_config(
+                require_preprocessed_registry=False,
+                scenes=["102815859"],
+                scene_splits={
+                    "train": ["102815859"],
+                    "val": ["102815859"],
+                    "test": [],
                 },
             )
 
@@ -142,7 +136,7 @@ class FinishedRobotAssetTests(unittest.TestCase):
         )
 
     def test_formal_embodiment_uses_fixed_camera_height(self):
-        config = load_config()
+        config = load_config(require_preprocessed_registry=False)
         self.assertAlmostEqual(config.robot_body_diameter_m, 0.46, places=8)
         self.assertAlmostEqual(config.robot_body_height_m, 0.107, places=8)
         self.assertAlmostEqual(config.camera_height_min_m, 0.15, places=8)

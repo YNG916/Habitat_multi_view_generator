@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import json
 import math
-import tempfile
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -23,67 +21,84 @@ class HabitatBackend:
     """The only layer allowed to mutate Habitat state.
 
     Every call to ``apply_world_state`` reconstructs all controlled entities from
-    an immutable-ish WorldState snapshot. Scene-owned ReplicaCAD furniture is
+    an immutable-ish WorldState snapshot. Scene-owned HSSD geometry is
     never removed or serialized as a controlled object.
     """
 
-    def __init__(self, config, scene_id: str):
+    def __init__(self, config, scene_spec, floor_spec=None):
         import habitat_sim
+        from .hssd_preprocess import (
+            navmesh_settings_dict,
+            navmesh_settings_fingerprint,
+        )
+        from .scene_registry import sha256_file
 
         self.habitat_sim = habitat_sim
         self.config = config
-        self.scene_id = scene_id
-        self.navmesh_path = config.navmesh_path(scene_id)
-        if not config.dataset_config_path.exists():
-            raise FileNotFoundError(f"Scene dataset config not found: {config.dataset_config_path}")
-        if not self.navmesh_path.exists():
-            raise FileNotFoundError(f"Explicit navmesh not found for {scene_id}: {self.navmesh_path}")
+        if isinstance(scene_spec, str):
+            scene_spec = config.registry().scene(scene_spec)
+        if floor_spec is None:
+            floors = scene_spec.eligible_floors
+            if len(floors) != 1:
+                raise ValueError(
+                    f"{scene_spec.scene_id} has {len(floors)} eligible floors; "
+                    "floor_id must be selected explicitly"
+                )
+            floor_spec = floors[0]
+        if floor_spec not in scene_spec.floors or not floor_spec.eligible:
+            raise ValueError("Backend requires an eligible registered HSSD floor")
+        self.scene_spec = scene_spec
+        self.floor_spec = floor_spec
+        self.scene_id = scene_spec.scene_id
+        self.floor_id = floor_spec.floor_id
+        self.navmesh_path = config.resolve(scene_spec.cached_navmesh_path)
+        if not config.dataset_config_path.is_file():
+            raise FileNotFoundError(f"Standard HSSD config missing: {config.dataset_config_path}")
+        if not self.navmesh_path.is_file():
+            raise FileNotFoundError(
+                f"Preprocessed robot NavMesh missing for {self.scene_id}: {self.navmesh_path}"
+            )
+        expected_settings = navmesh_settings_fingerprint(navmesh_settings_dict(config))
+        if scene_spec.navmesh_settings_fingerprint != expected_settings:
+            raise ValueError(
+                f"Stale NavMesh settings for {self.scene_id}; rerun preprocess_hssd.py"
+            )
+        if scene_spec.navmesh_sha256 and sha256_file(self.navmesh_path) != scene_spec.navmesh_sha256:
+            raise ValueError(f"Cached NavMesh hash mismatch for {self.scene_id}")
 
-        preflight = habitat_sim.PathFinder()
-        if not preflight.load_nav_mesh(str(self.navmesh_path)):
-            raise RuntimeError(f"Could not load navmesh: {self.navmesh_path}")
-        bounds = preflight.get_bounds()
         self.navmesh_bounds = (
-            np.asarray(bounds[0], dtype=np.float64),
-            np.asarray(bounds[1], dtype=np.float64),
+            np.asarray(floor_spec.navigable_bounds_world[0], dtype=np.float64),
+            np.asarray(floor_spec.navigable_bounds_world[1], dtype=np.float64),
         )
-        # Probe the complete rendered scene before fixing the orthographic
-        # sensor extent. Navigability and visual coverage are different bounds.
-        self.render_bev_bounds = self.navmesh_bounds
-        self.scene_bounds = self.render_bev_bounds
+        self.render_bev_bounds = (
+            np.asarray(floor_spec.visual_bev_bounds_world[0], dtype=np.float64),
+            np.asarray(floor_spec.visual_bev_bounds_world[1], dtype=np.float64),
+        )
+        self.scene_bounds = (
+            np.asarray(scene_spec.rendered_scene_aabb[0], dtype=np.float64),
+            np.asarray(scene_spec.rendered_scene_aabb[1], dtype=np.float64),
+        )
         self.mapping = BevMapping.from_bounds(
-            self.render_bev_bounds[0], self.render_bev_bounds[1],
+            self.render_bev_bounds[0],
+            self.render_bev_bounds[1],
             config.bev_meters_per_pixel,
         )
-        self._runtime_dataset_config_path = self._filtered_dataset_config()
-        self.sim = None
-        probe = None
-        try:
-            probe = self._create_simulator(bounds_probe=True)
-            scene_aabb = probe.scene_aabb
-            self.render_bev_bounds = (
-                np.asarray(scene_aabb.min, dtype=np.float64),
-                np.asarray(scene_aabb.max, dtype=np.float64),
-            )
-            self.scene_bounds = self.render_bev_bounds
-            self.mapping = BevMapping.from_bounds(
-                self.render_bev_bounds[0], self.render_bev_bounds[1],
-                config.bev_meters_per_pixel,
-            )
-            probe.close()
-            probe = None
-            self.sim = self._create_simulator()
-        except Exception:
-            if probe is not None:
-                probe.close()
-            self._remove_runtime_dataset_config()
-            raise
+        self.sim = self._create_simulator()
         if not self.sim.pathfinder.load_nav_mesh(str(self.navmesh_path)):
             self.close()
-            raise RuntimeError(f"Habitat loaded {scene_id} but explicit navmesh load failed")
+            raise RuntimeError(f"Could not load cached HSSD NavMesh: {self.navmesh_path}")
+        missing_islands = set(floor_spec.allowed_island_ids) - set(
+            range(int(self.sim.pathfinder.num_islands))
+        )
+        if missing_islands:
+            self.close()
+            raise ValueError(
+                f"Registered islands no longer exist for {self.scene_id}/{self.floor_id}: "
+                f"{sorted(missing_islands)}"
+            )
         self.spawned_object_ids: List[int] = []
         self.render_ids: Dict[str, Tuple[int, int]] = {}
-        self._occupancy_cache: Dict[float, np.ndarray] = {}
+        self._occupancy_cache: Dict[str, np.ndarray] = {}
         self._load_proxy_templates()
         self._validate_proxy_dimensions()
         self.controlled_handles = self._resolve_controlled_handles()
@@ -100,69 +115,33 @@ class HabitatBackend:
         spec.far = float(far)
         return spec
 
-    def _filtered_dataset_config(self) -> Path:
-        """Drop references to optional local resources that are not installed."""
-        source = self.config.dataset_config_path
-        with source.open("r", encoding="utf-8") as handle:
-            data = json.load(handle)
-        base = source.parent
-        navmeshes = data.get("navmesh_instances", {})
-        data["navmesh_instances"] = {
-            key: value
-            for key, value in navmeshes.items()
-            if (base / value).exists()
-        }
-        urdf_paths = data.get("articulated_objects", {}).get("paths", {}).get(".urdf", [])
-        data["articulated_objects"]["paths"][".urdf"] = [
-            value for value in urdf_paths if "hab_fetch_1.0" not in value
-        ]
-        with tempfile.NamedTemporaryFile(
-            mode="w",
-            suffix=".scene_dataset_config.json",
-            prefix=".mri-",
-            dir=base,
-            encoding="utf-8",
-            delete=False,
-        ) as handle:
-            json.dump(data, handle)
-            return Path(handle.name)
-
-    def _remove_runtime_dataset_config(self) -> None:
-        path = getattr(self, "_runtime_dataset_config_path", None)
-        if path is not None:
-            path.unlink(missing_ok=True)
-            self._runtime_dataset_config_path = None
-
-    def _create_simulator(self, bounds_probe: bool = False):
+    def _create_simulator(self):
         hs = self.habitat_sim
-        if bounds_probe:
-            agent = hs.agent.AgentConfiguration()
-            agent.sensor_specifications = []
-            simulator = hs.SimulatorConfiguration()
-            simulator.scene_dataset_config_file = str(self._runtime_dataset_config_path)
-            simulator.scene_id = self.scene_id
-            simulator.enable_physics = True
-            simulator.gpu_device_id = int(self.config.gpu_device_id)
-            return hs.Simulator(hs.Configuration(simulator, [agent]))
-
         agent_configs = []
         for index in range(1, self.config.num_robots + 1):
             sensors = []
-            rgb = self._sensor(
-                f"robot_{index:02d}_rgb", hs.SensorType.COLOR, hs.SensorSubType.PINHOLE,
-                [self.config.height, self.config.width], self.config.near, self.config.far,
-            )
-            rgb.hfov = self.config.hfov_deg
-            depth = self._sensor(
-                f"robot_{index:02d}_depth", hs.SensorType.DEPTH, hs.SensorSubType.PINHOLE,
-                [self.config.height, self.config.width], self.config.near, self.config.far,
-            )
-            depth.hfov = self.config.hfov_deg
-            sensors.extend([rgb, depth])
+            for suffix, sensor_type in (
+                ("rgb", hs.SensorType.COLOR),
+                ("depth", hs.SensorType.DEPTH),
+            ):
+                spec = self._sensor(
+                    f"robot_{index:02d}_{suffix}",
+                    sensor_type,
+                    hs.SensorSubType.PINHOLE,
+                    [self.config.height, self.config.width],
+                    self.config.near,
+                    self.config.far,
+                )
+                spec.hfov = self.config.hfov_deg
+                sensors.append(spec)
             if self.config.enable_instance:
                 instance = self._sensor(
-                    f"robot_{index:02d}_instance", hs.SensorType.SEMANTIC, hs.SensorSubType.PINHOLE,
-                    [self.config.height, self.config.width], self.config.near, self.config.far,
+                    f"robot_{index:02d}_instance",
+                    hs.SensorType.SEMANTIC,
+                    hs.SensorSubType.PINHOLE,
+                    [self.config.height, self.config.width],
+                    self.config.near,
+                    self.config.far,
                 )
                 instance.hfov = self.config.hfov_deg
                 instance.semantic_target = type(instance.semantic_target).OBJECT_ID
@@ -172,18 +151,22 @@ class HabitatBackend:
             agent_configs.append(agent)
 
         bev_sensors = []
-        for uuid, sensor_type in [("bev_rgb", hs.SensorType.COLOR), ("bev_depth", hs.SensorType.DEPTH)]:
+        for uuid, sensor_type in (
+            ("bev_rgb", hs.SensorType.COLOR),
+            ("bev_depth", hs.SensorType.DEPTH),
+        ):
             spec = self._sensor(
                 uuid, sensor_type, hs.SensorSubType.ORTHOGRAPHIC,
-                [self.mapping.height, self.mapping.width], self.config.bev_near, self.config.bev_far,
+                [self.mapping.height, self.mapping.width],
+                self.config.bev_near, self.config.bev_far,
             )
-            # v0.3.3 defines horizontal world extent as 1 / ortho_scale.
             spec.ortho_scale = 1.0 / (self.mapping.x_max - self.mapping.x_min)
             bev_sensors.append(spec)
         if self.config.enable_instance:
             spec = self._sensor(
                 "bev_instance", hs.SensorType.SEMANTIC, hs.SensorSubType.ORTHOGRAPHIC,
-                [self.mapping.height, self.mapping.width], self.config.bev_near, self.config.bev_far,
+                [self.mapping.height, self.mapping.width],
+                self.config.bev_near, self.config.bev_far,
             )
             spec.ortho_scale = 1.0 / (self.mapping.x_max - self.mapping.x_min)
             spec.semantic_target = type(spec.semantic_target).OBJECT_ID
@@ -193,7 +176,7 @@ class HabitatBackend:
         agent_configs.append(bev_agent)
 
         simulator = hs.SimulatorConfiguration()
-        simulator.scene_dataset_config_file = str(self._runtime_dataset_config_path)
+        simulator.scene_dataset_config_file = str(self.config.dataset_config_path)
         simulator.scene_id = self.scene_id
         simulator.enable_physics = True
         simulator.gpu_device_id = int(self.config.gpu_device_id)
@@ -246,12 +229,14 @@ class HabitatBackend:
 
     def _resolve_controlled_handles(self) -> Dict[str, str]:
         manager = self.sim.get_object_template_manager()
-        suffixes = list(self.config.controlled_object_whitelist.values())
-        resolved_suffix = handles_by_suffix(manager, suffixes)
-        return {
-            category: resolved_suffix[suffix]
-            for category, suffix in self.config.controlled_object_whitelist.items()
-        }
+        result = {}
+        for category, handle in self.config.controlled_object_whitelist.items():
+            if not manager.get_library_has_handle(handle):
+                raise KeyError(
+                    f"HSSD exact template handle is unavailable for {category}: {handle}"
+                )
+            result[category] = handle
+        return result
 
     def resolve_proxy_handle(self, config_path: str) -> str:
         suffix = Path(config_path).name
@@ -259,10 +244,9 @@ class HabitatBackend:
 
     def resolve_runtime_handle(self, handle: str) -> str:
         manager = self.sim.get_object_template_manager()
-        if manager.get_library_has_handle(handle):
-            return handle
-        suffix = Path(handle).name
-        return handles_by_suffix(manager, [suffix])[suffix]
+        if not manager.get_library_has_handle(handle):
+            raise KeyError(f"Exact HSSD template handle is unavailable: {handle}")
+        return handle
 
     @staticmethod
     def _agent_quaternion(quaternion_xyzw):
@@ -322,23 +306,17 @@ class HabitatBackend:
         return obj
 
     def bev_camera_height_above_floor(self, floor_y: float) -> float:
-        scene_override = self.config.scene_overrides.get(self.scene_id, {})
-        if "bev_camera_height_m" not in scene_override:
+        if abs(float(floor_y) - self.floor_spec.representative_floor_y) > self.config.floor_tolerance_m:
             raise ValueError(
-                f"{self.scene_id} requires an explicit scene_overrides.bev_camera_height_m"
+                f"WorldState floor Y does not match {self.scene_id}/{self.floor_id}"
             )
-        requested = float(scene_override["bev_camera_height_m"])
-        clearance = float(self.config.scene_value(self.scene_id, "bev_ceiling_clearance_m"))
-        maximum = float(self.render_bev_bounds[1][1] - floor_y - clearance)
-        if not float(self.config.bev_near) < requested < maximum:
-            raise ValueError(
-                f"BEV camera height {requested:.3f} m is unsafe for {self.scene_id}; "
-                f"it must be below the scene ceiling estimate with {clearance:.3f} m clearance "
-                f"(maximum {maximum:.3f} m). Add a scene_overrides entry."
-            )
-        return requested
+        return float(self.floor_spec.bev_camera_height_m)
 
     def apply_world_state(self, state: WorldState) -> None:
+        if state.dataset_source != "hssd" or state.scene_id != self.scene_id:
+            raise ValueError("WorldState does not belong to this HSSD scene")
+        if state.floor_id != self.floor_id:
+            raise ValueError("WorldState floor_id does not match the selected backend floor")
         self._clear_spawned()
         for index, robot in enumerate(state.robots):
             robot.synchronize_camera()
@@ -612,6 +590,7 @@ class HabitatBackend:
                 self.mapping,
                 state.floor_y,
                 navmesh_bounds=self.navmesh_bounds,
+                allowed_island_ids=self.floor_spec.allowed_island_ids,
             )
         occupancy = self._occupancy_cache[floor_key]
         self._populate_visibility(state, robots)
@@ -719,14 +698,10 @@ class HabitatBackend:
                     if not result.has_hits():
                         continue
                     hit = result.hits[0]
-                    # Static stage geometry is the only stable render/collision
-                    # oracle across ReplicaCAD's optional furniture proxies.
-                    if int(hit.object_id) != int(self.habitat_sim.stage_id):
+                    hit_id = int(hit.object_id)
+                    if hit_id in self.spawned_object_ids:
                         continue
-                    if (
-                        instance is not None
-                        and int(instance[row, col]) != int(self.habitat_sim.stage_id)
-                    ):
+                    if instance is not None and int(instance[row, col]) != hit_id:
                         continue
                     expected_z = float(hit.ray_distance) / ray_scale
                     saved_z = float(depth[row, col])
@@ -737,7 +712,7 @@ class HabitatBackend:
                             "robot_id": robot.robot_id,
                             "pixel_rc": [int(row), int(col)],
                             "saved_z_depth_m": saved_z,
-                            "bullet_stage_z_depth_m": expected_z,
+                            "bullet_static_hssd_z_depth_m": expected_z,
                             "absolute_error_m": abs(saved_z - expected_z),
                         }
                     )
@@ -748,7 +723,7 @@ class HabitatBackend:
             "pixel_coordinate_convention": (
                 "integer pixel centers with cx=width/2, cy=height/2"
             ),
-            "validation_scope": "3x3 off-center grid; first Bullet hit is static stage",
+            "validation_scope": "3x3 off-center grid; matched native HSSD render/Bullet object",
             "mean_abs_error_m": float(np.mean(errors)) if errors else None,
             "median_abs_error_m": float(np.median(errors)) if errors else None,
             "p90_abs_error_m": (
@@ -811,7 +786,6 @@ class HabitatBackend:
         if getattr(self, "sim", None) is not None:
             self.sim.close()
             self.sim = None
-        self._remove_runtime_dataset_config()
 
     def __enter__(self):
         return self

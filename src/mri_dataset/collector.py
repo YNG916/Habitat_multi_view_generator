@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import re
 from collections import Counter
 from pathlib import Path
 from typing import List, Optional
@@ -20,34 +19,20 @@ from .serialization import (
 from .world_state import WorldState
 
 
-APT1_DEBUG_POSITIONS = np.array(
-    [
-        [-0.558784008026123, 0.11937291920185089, 2.502380847930908],
-        [0.25762394070625305, 0.11937291920185089, 3.131887912750244],
-        [3.1363348960876465, 0.11937291920185089, 3.8737664222717285],
-    ],
-    dtype=np.float64,
-)
-APT1_DEBUG_YAWS = [0.0, np.pi / 2.0, -np.pi / 2.0]
-
-
 def make_world_state(backend, config, state_id: str, seed: int, deterministic_debug: bool = False) -> WorldState:
     rng = np.random.default_rng(seed)
     backend.sim.pathfinder.seed(int(seed))
-    if deterministic_debug:
-        if backend.scene_id != "apt_1" or config.num_robots != 3:
-            raise ValueError("The preserved deterministic debug pose is defined for apt_1 with 3 robots")
-        positions = [point.copy() for point in APT1_DEBUG_POSITIONS]
-        yaws = APT1_DEBUG_YAWS
-        heights = None
-    else:
-        positions = sample_robot_positions(
-            backend.sim.pathfinder, rng, config.num_robots,
-            config.min_obstacle_distance_m, config.min_inter_robot_distance_m,
-            config.local_sampling_radius_m, config.floor_tolerance_m,
-        )
-        yaws = sample_yaws(positions, rng, config.heading_mode, config.shared_heading_jitter_deg)
-        heights = None
+    positions = sample_robot_positions(
+        backend.sim.pathfinder, rng, config.num_robots,
+        config.min_obstacle_distance_m, config.min_inter_robot_distance_m,
+        config.local_sampling_radius_m, config.floor_tolerance_m,
+        allowed_island_ids=backend.floor_spec.allowed_island_ids,
+        representative_floor_y=backend.floor_spec.representative_floor_y,
+    )
+    yaws = sample_yaws(
+        positions, rng, config.heading_mode, config.shared_heading_jitter_deg
+    )
+    heights = None
     surface_ys = np.asarray(
         [backend.floor_surface_y(point) for point in positions], dtype=np.float64
     )
@@ -58,8 +43,9 @@ def make_world_state(backend, config, state_id: str, seed: int, deterministic_de
     floor_y = float(np.median(surface_ys))
     robots = build_robot_states(positions, yaws, rng, config, deterministic_heights=heights)
     state = WorldState(
-        schema_version="0.1.0", state_id=state_id, scene_id=backend.scene_id,
+        schema_version="0.2.0", state_id=state_id, scene_id=backend.scene_id,
         floor_y=floor_y, random_seed=seed, robots=robots,
+        dataset_source="hssd", floor_id=backend.floor_id,
     )
     state.objects = sample_controlled_objects(backend, state, config, rng)
     state.overlap = compute_fov_overlap(backend.mapping, robots, config.hfov_deg)
@@ -73,17 +59,21 @@ def sample_controlled_objects(backend, state, config, rng) -> list:
     categories = sorted(backend.controlled_handles)
     anchor = np.asarray(state.robots[0].base_position_world)
     island = int(backend.sim.pathfinder.get_island(anchor))
+    if island not in backend.floor_spec.allowed_island_ids:
+        raise ValueError("Object anchor is outside the selected HSSD floor islands")
     result = []
     for index in range(1, config.controlled_objects_per_state + 1):
         category = categories[int(rng.integers(0, len(categories)))]
         for _ in range(400):
             point = np.asarray(
-                backend.sim.pathfinder.get_random_navigable_point_near(
-                    anchor, min(2.5, config.local_sampling_radius_m), 100, island
-                ),
+                backend.sim.pathfinder.get_random_navigable_point(100, island),
                 dtype=np.float64,
             )
             if not np.all(np.isfinite(point)):
+                continue
+            if np.linalg.norm(point[[0, 2]] - anchor[[0, 2]]) > min(
+                2.5, config.local_sampling_radius_m
+            ):
                 continue
             object_floor_y = backend.floor_surface_y(point)
             if abs(object_floor_y - state.floor_y) > config.floor_tolerance_m:
@@ -140,17 +130,6 @@ def validate_sampled_state(backend, state, config) -> None:
 
 
 
-def layout_family(scene_id: str, explicit=None) -> str:
-    """Return rendered-stage identity, grouping furniture rearrangements."""
-    explicit = explicit or {}
-    if explicit.get(scene_id):
-        return explicit[scene_id]
-    if re.match(r"^apt_\d+$", scene_id):
-        return "frl_apartment_stage"
-    match = re.match(r"^(v3_sc\d+)_staging_\d+$", scene_id)
-    return match.group(1) if match else scene_id
-
-
 def initialize_dataset_root(root: Path, config) -> None:
     root.mkdir(parents=True, exist_ok=True)
     (root / "splits").mkdir(exist_ok=True)
@@ -176,14 +155,17 @@ def initialize_dataset_root(root: Path, config) -> None:
     write_json(
         dataset_path,
         {
-            "schema_version": "1.0.0",
+            "schema_version": "2.0.0",
+            "dataset_source": "hssd",
             "dataset_version": config.dataset_version,
             "generator": "mri_dataset",
             "generation_fingerprint": fingerprint,
             "config": config.to_dict(),
             "protocol": protocol_descriptor(config),
-            "split_unit": "replicacad_macro_furniture_layout_family",
+            "split_unit": "hssd_scene_id",
             "scene_splits": config.scene_splits,
+            "scene_registry": config.scene_registry,
+            "split_manifest": config.split_manifest,
             "states": [],
             "interventions": [],
         },
@@ -192,13 +174,13 @@ def initialize_dataset_root(root: Path, config) -> None:
         root / "categories.json",
         {
             "controlled_objects": [
-                {"category": category, "template_suffix": suffix}
-                for category, suffix in config.controlled_object_whitelist.items()
+                {"category": category, "exact_hssd_template_handle": handle}
+                for category, handle in config.controlled_object_whitelist.items()
             ],
             "robot_proxies": ["red", "green", "blue"],
             "semantic_category_ids": config.semantic_category_ids,
             "semantic_scope": (
-                "controlled entities only; ReplicaCAD stage/furniture is label 0"
+                "controlled entities only; native HSSD scene geometry is label 0"
             ),
         },
     )
@@ -209,8 +191,8 @@ def update_dataset_index(root: Path) -> None:
     dataset_path = root / "dataset.json"
     with dataset_path.open("r", encoding="utf-8") as handle:
         dataset = json.load(handle)
-    state_paths = sorted(root.glob("scenes/*/states/*/state.json"))
-    edit_paths = sorted(root.glob("interventions/*/edit_*.json"))
+    state_paths = sorted(root.glob("scenes/*/floors/*/states/*/state.json"))
+    edit_paths = sorted(root.glob("interventions/*/*/edit_*.json"))
 
     configured_splits = dataset.get("scene_splits", {})
     scene_to_split = {
@@ -223,7 +205,7 @@ def update_dataset_index(root: Path) -> None:
     derived_states = []
     buckets = {
         split: {
-            "layout_families": set(),
+            "scenes": set(),
             "states": [],
             "after_states": [],
             "interventions": [],
@@ -240,10 +222,7 @@ def update_dataset_index(root: Path) -> None:
         split = scene_to_split.get(scene_id, "train" if not scene_to_split else None)
         if split not in buckets:
             raise ValueError(f"Scene {scene_id!r} is not assigned to a dataset split")
-        family = layout_family(
-            scene_id, dataset.get("config", {}).get("scene_layout_families", {})
-        )
-        buckets[split]["layout_families"].add(family)
+        buckets[split]["scenes"].add(scene_id)
         origin = metadata.get("state_origin")
         if origin is None:
             origin = "intervention_derived" if metadata.get("parent_state_id") else "factual"
@@ -310,7 +289,7 @@ def update_dataset_index(root: Path) -> None:
         serializable = {
             "schema_version": "1.0.0",
             "split": split,
-            "layout_families": sorted(payload["layout_families"]),
+            "scenes": sorted(payload["scenes"]),
             "states": sorted(payload["states"]),
             "after_states": sorted(payload["after_states"]),
             "interventions": sorted(payload["interventions"]),
@@ -327,7 +306,7 @@ def update_dataset_index(root: Path) -> None:
             {
                 "schema_version": "1.0.0",
                 "split": split,
-                "layout_families": serializable["layout_families"],
+                "scenes": serializable["scenes"],
                 "states": serializable["states"],
             },
         )
@@ -358,26 +337,38 @@ def collect_level1(
 ) -> List[Path]:
     initialize_dataset_root(root, config)
     scene_dir = root / "scenes" / backend.scene_id
-    (scene_dir / "states").mkdir(parents=True, exist_ok=True)
+    floor_dir = scene_dir / "floors" / backend.floor_id
+    (floor_dir / "states").mkdir(parents=True, exist_ok=True)
     write_json(
         scene_dir / "scene.json",
         {
+            "dataset_source": "hssd",
             "scene_id": backend.scene_id,
-            "layout_family": config.layout_family(backend.scene_id),
             "split": config.scene_split(backend.scene_id),
-            "navmesh": str(Path(config.navmesh_root) / f"{backend.scene_id}.navmesh"),
-            "bounds_world": [
-                backend.render_bev_bounds[0].tolist(),
-                backend.render_bev_bounds[1].tolist(),
-            ],
+            "official_hssd_split": backend.scene_spec.official_split,
+            "rendered_scene_aabb": backend.scene_spec.rendered_scene_aabb,
+        },
+    )
+    write_json(
+        floor_dir / "floor.json",
+        {
+            "dataset_source": "hssd",
+            "scene_id": backend.scene_id,
+            "floor_id": backend.floor_id,
+            "split": config.scene_split(backend.scene_id),
+            "cached_navmesh": backend.scene_spec.cached_navmesh_path,
+            "navmesh_sha256": backend.scene_spec.navmesh_sha256,
+            "navmesh_settings": backend.scene_spec.navmesh_settings,
+            "allowed_island_ids": backend.floor_spec.allowed_island_ids,
+            "representative_floor_y": backend.floor_spec.representative_floor_y,
+            "navigable_area_m2": backend.floor_spec.navigable_area_m2,
             "navmesh_bounds_world": [
-                backend.navmesh_bounds[0].tolist(),
-                backend.navmesh_bounds[1].tolist(),
+                backend.navmesh_bounds[0].tolist(), backend.navmesh_bounds[1].tolist()
             ],
             "render_bev_bounds_world": [
-                backend.render_bev_bounds[0].tolist(),
-                backend.render_bev_bounds[1].tolist(),
+                backend.render_bev_bounds[0].tolist(), backend.render_bev_bounds[1].tolist()
             ],
+            "bev_camera_height_m": backend.floor_spec.bev_camera_height_m,
         },
     )
     saved = []
@@ -386,7 +377,7 @@ def collect_level1(
     max_attempts = int(config.max_state_sampling_attempts)
     for index in range(1, num_states + 1):
         state_id = f"state_{index:06d}"
-        state_dir = scene_dir / "states" / state_id
+        state_dir = floor_dir / "states" / state_id
         if state_dir.exists():
             if config.resume and state_directory_complete(state_dir):
                 skipped.append(state_dir)
@@ -401,6 +392,7 @@ def collect_level1(
                 config.random_seed,
                 config.protocol_version,
                 backend.scene_id,
+                backend.floor_id,
                 state_id,
                 "level1",
                 attempt,
@@ -424,9 +416,10 @@ def collect_level1(
                 f"{max_attempts} attempts: {last_error}"
             ) from last_error
     write_json(
-        scene_dir / "level1_collection_status.json",
+        floor_dir / "level1_collection_status.json",
         {
             "scene_id": backend.scene_id,
+            "floor_id": backend.floor_id,
             "target_states": int(num_states),
             "new_states": len(saved),
             "resumed_states": len(skipped),

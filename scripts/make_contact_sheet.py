@@ -16,7 +16,7 @@ def main():
     parser.add_argument("--output-dir")
     args = parser.parse_args()
     root = Path(args.root).resolve()
-    sheets = sorted(root.glob("scenes/*/states/*/contact_sheet.png"))
+    sheets = sorted(root.glob("scenes/*/floors/*/states/*/contact_sheet.png"))
     selected = random.Random(args.seed).sample(sheets, min(args.num_samples, len(sheets)))
     output = Path(args.output_dir).resolve() if args.output_dir else root / "contact_sheets"
     output.mkdir(parents=True, exist_ok=True)

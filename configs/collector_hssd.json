@@ -1,0 +1,24 @@
+{
+  "dataset_source": "hssd",
+  "scene_dataset_config": "data/scene_datasets/hssd-hab/hssd-hab.scene_dataset_config.json",
+  "official_scene_splits": "data/scene_datasets/hssd-hab/scene_splits.yaml",
+  "scene_registry": "data/hssd_processed/scene_registry.json",
+  "split_manifest": "data/hssd_processed/split_manifest.json",
+  "navmesh_cache_root": "data/hssd_processed/navmeshes",
+  "controlled_object_registry": "configs/hssd_controlled_objects.json",
+  "hssd_preprocess_overrides_path": "configs/hssd_preprocess_overrides.json",
+  "output_root": "outputs/mri_hssd_formal_v2",
+  "width": 2048,
+  "height": 2048,
+  "bev_meters_per_pixel": 0.00625,
+  "num_states_by_split": {
+    "train": 100,
+    "val": 25,
+    "test": 25
+  },
+  "num_edits_per_state": 2,
+  "controlled_objects_per_state": 2,
+  "save_visualizations": true,
+  "compress_numeric_arrays": true,
+  "random_seed": 123
+}
