@@ -141,9 +141,14 @@ def validate_sampled_state(backend, state, config) -> None:
 
 
 
-def layout_family(scene_id: str) -> str:
-    # Preserve apt_N identity while grouping common rearrangement suffixes.
-    match = re.match(r"^(apt_\d+)(?:[_-](?:rearrange|variant|v)\w*)?$", scene_id)
+def layout_family(scene_id: str, explicit=None) -> str:
+    """Return rendered-stage identity, grouping furniture rearrangements."""
+    explicit = explicit or {}
+    if explicit.get(scene_id):
+        return explicit[scene_id]
+    if re.match(r"^apt_\d+$", scene_id):
+        return "frl_apartment_stage"
+    match = re.match(r"^(v3_sc\d+)_staging_\d+$", scene_id)
     return match.group(1) if match else scene_id
 
 
@@ -178,7 +183,7 @@ def initialize_dataset_root(root: Path, config) -> None:
             "generation_fingerprint": fingerprint,
             "config": config.to_dict(),
             "protocol": protocol_descriptor(config),
-            "split_unit": "apartment_layout_family",
+            "split_unit": "replicacad_macro_furniture_layout_family",
             "scene_splits": config.scene_splits,
             "states": [],
             "interventions": [],
@@ -236,7 +241,9 @@ def update_dataset_index(root: Path) -> None:
         split = scene_to_split.get(scene_id, "train" if not scene_to_split else None)
         if split not in buckets:
             raise ValueError(f"Scene {scene_id!r} is not assigned to a dataset split")
-        family = layout_family(scene_id)
+        family = layout_family(
+            scene_id, dataset.get("config", {}).get("scene_layout_families", {})
+        )
         buckets[split]["layout_families"].add(family)
         origin = metadata.get("state_origin")
         if origin is None:
@@ -357,7 +364,7 @@ def collect_level1(
         scene_dir / "scene.json",
         {
             "scene_id": backend.scene_id,
-            "layout_family": layout_family(backend.scene_id),
+            "layout_family": config.layout_family(backend.scene_id),
             "split": config.scene_split(backend.scene_id),
             "navmesh": str(Path(config.navmesh_root) / f"{backend.scene_id}.navmesh"),
             "bounds_world": [

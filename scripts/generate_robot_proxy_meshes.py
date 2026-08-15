@@ -113,11 +113,11 @@ class Mesh:
 
 def build_mesh(camera_height_m=None):
     mesh = Mesh()
-    mesh.cylinder(0.282, 0.035, 0.108, 32, "body", top_material="body", bottom_material="trim")
-    mesh.cylinder(0.255, 0.108, 0.119, 32, "deck", top_material="deck")
-    mesh.cylinder(0.292, 0.055, 0.101, 32, "trim", caps=False)
-    mesh.cylinder(0.052, 0.119, 0.174, 20, "sensor", 0.065, 0.035, top_material="sensor")
-    mesh.cylinder(0.018, 0.119, 0.128, 16, "status", -0.075, -0.020, top_material="status")
+    mesh.cylinder(0.282, 0.006, 0.102, 32, "body", top_material="body", bottom_material="trim")
+    mesh.cylinder(0.255, 0.102, 0.113, 32, "deck", top_material="deck")
+    mesh.cylinder(0.286, 0.020, 0.095, 32, "trim", caps=False)
+    mesh.cylinder(0.052, 0.113, 0.165, 20, "sensor", 0.065, 0.035, top_material="sensor")
+    mesh.cylinder(0.018, 0.113, 0.122, 16, "status", -0.075, -0.020, top_material="status")
 
     if camera_height_m is not None:
         camera_height_m = float(camera_height_m)
@@ -126,7 +126,7 @@ def build_mesh(camera_height_m=None):
         # Thin telescoping mast and compact camera head. The optical center is
         # exactly camera_height_m, matching RobotState camera metadata.
         mesh.cylinder(
-            0.018, 0.119, camera_height_m - 0.035, 12, "trim",
+            0.018, 0.113, camera_height_m - 0.035, 12, "trim",
             center_x=0.0, center_z=0.035,
         )
         mesh.box(
@@ -142,18 +142,19 @@ def build_mesh(camera_height_m=None):
             "status",
         )
 
-    # Two drive wheels and small front/rear sensor windows.
-    mesh.box(-0.298, -0.260, 0.012, 0.076, -0.090, 0.090, "wheel")
-    mesh.box(0.260, 0.298, 0.012, 0.076, -0.090, 0.090, "wheel")
-    mesh.box(-0.067, 0.067, 0.068, 0.101, -0.298, -0.291, "sensor")
-    mesh.box(-0.040, 0.040, 0.045, 0.068, 0.284, 0.294, "status")
+    # Inset drive wheels touch local Y=0. This is also the proxy/world base
+    # origin, so the visible mesh, Bullet support and camera mast agree.
+    mesh.box(-0.284, -0.252, 0.000, 0.052, -0.075, 0.075, "wheel")
+    mesh.box(0.252, 0.284, 0.000, 0.052, -0.075, 0.075, "wheel")
+    mesh.box(-0.067, 0.067, 0.050, 0.090, -0.284, -0.278, "sensor")
+    mesh.box(-0.040, 0.040, 0.032, 0.060, 0.278, 0.284, "status")
 
     # Three low-profile side-brush arms near the front-right corner.
     brush_center = (0.195, -0.176)
     for angle_deg in (15.0, 135.0, 255.0):
         mesh.rotated_plate(
             brush_center[0], brush_center[1], 0.135, 0.010,
-            0.018, 0.024, math.radians(angle_deg), "brush"
+            0.002, 0.006, math.radians(angle_deg), "brush"
         )
     return mesh
 
@@ -231,9 +232,15 @@ def main():
             )
             config = {
                 "render_asset": f"{stem}.obj",
-                "use_bounding_box_for_collision": True,
+                "collision_asset": f"{stem}.obj",
+                # Preserve the authored Y=0 ground plane. A bounding-box
+                # collision would be recentered around the tall camera mast
+                # and make the visible vacuum float by roughly half its height.
+                "use_bounding_box_for_collision": False,
+                "margin": 0.001,
                 "mass": 4.0,
-                "COM": [0.0, 0.08, 0.0],
+                # Kinematic proxy origin is the physical floor/camera base.
+                "COM": [0.0, 0.0, 0.0],
                 "join_collision_meshes": True,
                 "semantic_id": 1000 + index,
             }

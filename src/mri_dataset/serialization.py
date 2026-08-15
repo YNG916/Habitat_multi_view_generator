@@ -263,11 +263,26 @@ def save_rendered_state(backend, state, state_dir: Path) -> Path:
                 f"{pinhole_median_error} exceeds "
                 f"{backend.config.pinhole_validation_median_error_m:.6f} m"
             )
+        robot_ground_support = {
+            robot.robot_id: backend.robot_support_report(state, robot.robot_id)
+            for robot in state.robots
+        }
+        support_tolerance = float(backend.config.support_contact_tolerance_m)
+        for robot_id, support in robot_ground_support.items():
+            if abs(float(support["support_gap_m"])) > support_tolerance:
+                raise RuntimeError(
+                    f"{robot_id} visual proxy is not grounded: {support}"
+                )
+            if abs(float(support["proxy_origin_offset_from_base_m"])) > 1e-4:
+                raise RuntimeError(
+                    f"{robot_id} proxy origin/camera base is misaligned: {support}"
+                )
         state.geometry_validation = {
             "pinhole_depth_center_rays": backend.validate_pinhole_depth_centers(
                 state, outputs["robots"]
             ),
             "pinhole_depth_offcenter_grid": pinhole_validation,
+            "robot_ground_support": robot_ground_support,
         }
         write_json(temporary / "objects.json", [obj.metadata() for obj in state.objects])
         write_json(temporary / "state.json", state.metadata(robot_paths, "objects.json"))

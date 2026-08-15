@@ -28,10 +28,15 @@ class HabitatCorrectnessIntegrationTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.config = load_config(
-            str(REPO_ROOT / "configs/collector.json"),
+            str(REPO_ROOT / "configs/collector_formal_smoke.json"),
+            scenes=["apt_1"],
+            scene_splits={"train": ["apt_1"], "val": [], "test": []},
+            scene_layout_families={"apt_1": "frl_apartment_stage"},
+            scene_overrides={"apt_1": {"bev_camera_height_m": 2.2}},
             width=96,
             height=96,
             bev_meters_per_pixel=0.08,
+            save_visualizations=False,
             height_validation_samples=32,
         )
         cls.backend = HabitatBackend(cls.config, "apt_1")
@@ -58,6 +63,13 @@ class HabitatCorrectnessIntegrationTests(unittest.TestCase):
         for robot in state.robots:
             expected_tag = f"_h{round(100 * robot.camera_height_m):03d}"
             self.assertIn(expected_tag, robot.proxy_asset_handle)
+        for robot in state.robots:
+            support = self.backend.robot_support_report(state, robot.robot_id)
+            self.assertAlmostEqual(support["proxy_local_min_y_m"], 0.0, places=5)
+            self.assertAlmostEqual(support["support_gap_m"], 0.0, places=4)
+            self.assertAlmostEqual(
+                support["proxy_origin_offset_from_base_m"], 0.0, places=5
+            )
         valid = np.isfinite(outputs["bev_metric_depth"])
         self.assertGreater(int(valid.sum()), 0)
         # v0.3.3's generic unprojection is not linear metric depth for an

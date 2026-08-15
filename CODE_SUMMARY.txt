@@ -133,7 +133,7 @@ tests/
 
 说明：
     这是正式数据集的高清默认档。快速正确性测试使用
-    configs/collector_pilot.json（768 x 768）。
+    configs/collector_formal_smoke.json（2048 x 2048，小样本全协议）。
 
 相机高度：
     camera_height_min_m = 0.4
@@ -1209,29 +1209,27 @@ conda run -n habitat python scripts/inspect_scene.py \
   --config configs/collector.json \
   --scene apt_1
 
-4. 生成小规模 Pilot
--------------------
+4. 生成正式高清 Smoke
+---------------------
 
-conda run -n habitat python scripts/collect_level1.py \
-  --config configs/collector_pilot.json \
-  --scene apt_1 \
-  --num-states 10 \
-  --output-root outputs/uhd_pilot
+conda run -n habitat python scripts/generate_dataset.py \
+  --config configs/collector_formal_smoke.json
 
-5. 验证 Pilot
-------------
+5. 验证正式高清 Smoke
+---------------------
 
-conda run -n habitat python scripts/validate_dataset.py \
-  --root outputs/uhd_pilot \
-  --config configs/collector_pilot.json
+上述命令已自动执行 full validation；也可单独重跑：
 
-6. 生成检查图
+conda run -n habitat python scripts/generate_dataset.py \
+  --config configs/collector_formal_smoke.json \
+  --stage validate --validation full
+
+6. 查看检查图
 -------------
 
-conda run -n habitat python scripts/make_contact_sheet.py \
-  --root outputs/uhd_pilot \
-  --num-samples 10 \
-  --seed 7
+每个 factual/after state 在对应目录保存 contact_sheet.png、annotated BEV
+和机器人 depth_vis.png。默认 root：
+    outputs/mri_dataset_formal_smoke_hd_v1_2
 
 7. 生成正式 Level-1
 -------------------
@@ -1369,8 +1367,8 @@ num-states 表示每个场景生成的状态数。
     1000 状态    约 120–140 GB
     1500 状态    约 180–210 GB
 
-configs/collector_pilot.json 的 768 模式显著更小，适合先验证流程，不建议
-将其作为最终训练数据。
+configs/collector_formal_smoke.json 与正式数据集使用相同 2048 图像规格，
+仅缩小场景和状态数量，因此可用于真实画质、流程和体积评估。
 
 Level-2 的每个 after-state 会保存完整 RGB/depth/instance/BEV，因此空间与
 Level-1 状态接近。
@@ -1379,38 +1377,20 @@ Level-1 状态接近。
 二十五、最近验证结果
 ============================================================
 
-Pilot：
-    root = outputs/uhd_pilot
-    states_checked = 10
-    errors = {}
+完整测试：
+    33 / 33 passed
+
+当前正式高清 smoke 实测：
+    4 个 macro families
+    robot RGB = 2048 x 2048
+    BEV = 约 1163 x 2078，约 0.00625 m/pixel
+    factual states = 4
+    interventions / after-states = 6
+    rendered states checked = 10
+    输出体积 = 189 MB
+    full validation errors = 0
     passed = true
 
-Contact sheets：
-    10 张成功生成。
-
-测试：
-    23 / 23 通过，其中 4 个是真实 Habitat integration tests：
-    - orthographic depth/height + Bullet downward ray + OBJECT_ID
-    - controlled object 与 robot proxy 双向 Bullet collision reject
-    - robot_translate 无滑动路径 + target floor + Bullet target
-    - object_translate target floor support
-
-本轮临时端到端 smoke test（自动清理）：
-    1 条 factual Level-1 + 1 条 robot_translate Level-2 after-state
-    states_checked = 2
-    errors = {}
-    passed = true
-    train.states 仅 factual
-    train.after_states 仅 intervention-derived
-    train.interventions 仅 edit JSON
-
-BEV 注册修复：
-    旧 0.35 m 最近像素容差已替换为 OBJECT_ID mask 质心。
-    阈值为 max(3 px, 0.02 m)，apt_1 实测约 1.1–4.3 mm。
-
-Habitat 配置日志：
-    未安装的可选 Fetch URDF 和缺失 v3_sc4 navmesh 会在运行时过滤。
-    原始 ReplicaCAD 配置不会被修改。
 
 二十六、新 review 的判断与处理
 ============================================================
@@ -1430,8 +1410,9 @@ review 中关于 orthographic depth 的纠正成立：
 
 同时发现并修复 review 未完全覆盖的问题：
     Level-1 初始 robot proxy 也可能与家具相交。现在每个 before-state 都做
-    Bullet 检查并确定性重采样。proxy mesh 原点不等于碰撞底面，spawn 时
-    使用 local collision AABB min Y 对齐 physical floor。
+    Bullet 检查并确定性重采样。此处记录的是旧 v1.1 的 collision-AABB 对齐
+    方案；它后来被确认会让高杆机器人浮空，已由第 29 节的 v1.2 视觉 Y=0
+    地面原点方案取代。
 
 低风险 P1 已实现：
     - geometrically_visible 与 benchmark_visible（默认 >= 20 px）双标签。
@@ -1466,13 +1447,17 @@ review 中关于 orthographic depth 的纠正成立：
 1. 正式场景与规模
 -----------------
 
-configs/collector.json 已冻结：
-    train = apt_0, apt_1, apt_2, apt_3
-    val   = apt_4
-    test  = apt_5
+configs/collector.json（protocol mri-formal-v1.2）已冻结为 ReplicaCAD
+macro furniture-layout split：
+    train = v3_sc0_staging_{00,01}, v3_sc1_staging_{00,01}
+    val   = v3_sc2_staging_{00,01}
+    test  = v3_sc3_staging_{00,01}
 
-每个 train scene 1000 factual states；val/test 各 250：
+train 每个 scene instance 1000 factual states；val/test 每个 scene instance 125：
     factual states = 4500
+
+同一 v3_scN macro family 不跨 split。注意这四个 family 仍共享 FRL apartment
+建筑壳体；该协议衡量未见家具宏布局，不衡量未见住宅或未见建筑结构。
 
 num_edits_per_state = 2，按每个 regime 独立计算：
     train：每 state 2 个 ID
@@ -1621,7 +1606,7 @@ categories.json 明确记录 scope 和 category IDs。
 ---------------
 
 单元/集成测试：
-    31 / 31 passed
+    33 / 33 passed
 
 真实集成覆盖：
     orthographic depth + OBJECT_ID + controlled semantic
@@ -1630,11 +1615,15 @@ categories.json 明确记录 scope 和 category IDs。
     robot exact path + physical target floor
     object target-floor support
 
-六场景正式 smoke（自动清理）：
-    apt_0 ... apt_5
-    factual states = 6
-    interventions = 8
-    rendered states checked = 14
+v1.2 正式高清 smoke：
+    config = configs/collector_formal_smoke.json
+    v3_sc0 ... v3_sc3，共 4 个 scene instances / 4 个 macro families
+    robot RGB = 2048 x 2048
+    BEV = 约 1163 x 2078，约 0.00625 m/pixel
+    factual states = 4
+    interventions / after-states = 6
+    rendered states checked = 10
+    实测输出 = 189 MB
     full validation errors = 0
     passed = true
 
@@ -1657,3 +1646,125 @@ categories.json 明确记录 scope 和 category IDs。
 
 重复相同命令即断点续采。完整 2048 数据集非常大，应先检查 smoke 的 du，
 确认最终 output_root 有足够空间。
+
+
+二十八、v1.2 场景身份与高清预览更正（当前状态）
+============================================================
+
+1. apt_0 到 apt_5 为什么是同一个房间
+-------------------------------------
+
+直接读取 scene_instance JSON 可见，六者的 stage_instance.template_name 全部是：
+    frl_apartment_stage
+
+因此它们不是六套住宅，而是同一个 FRL apartment 建筑壳体上的家具/对象配置。
+ReplicaCAD 官方数据的目标就是同一公寓中的 macro/micro furniture rearrangement。
+仓库本地没有 HM3D、Gibson 或 MP3D，不能声称 architecture-level diversity。
+
+2. 防止错误 split
+-----------------
+
+CollectorConfig 新增：
+    scene_layout_families
+    layout_family(scene_id)
+
+validate() 会汇总每个 family 所属 split；同一个 family 同时出现在 train/val/test
+中的两个或多个时立即报错。apt_0 到 apt_5 即使没有显式映射，也会全部推断成
+frl_apartment_stage。v3_scN_staging_XX 会按 v3_scN macro family 分组。
+
+split manifests、scene.json 和 dataset.json 的 family 字段现在使用相同身份规则，
+validation 会核对实际 family 必须属于对应 split。
+
+3. 保留的两个配置
+-----------------
+
+configs/collector_formal_smoke.json：
+    唯一的正式高清 smoke 配置
+    2048 x 2048 robot RGB-D/instance/semantic
+    0.00625 m/pixel BEV（实测约 1163 x 2078）
+    4 个 macro families，各 1 个 factual state
+    num_edits_per_state = 1
+    save_visualizations = true
+    保存 annotated BEV、depth_vis 和 contact_sheet
+    输出 outputs/mri_dataset_formal_smoke_hd_v1_2
+
+configs/collector.json：
+    完整正式数据集配置
+    相同 2048 传感器和 BEV 精度
+    8 个 scene instances / 4 个 macro families
+    4500 factual states / 10000 interventions
+    输出 outputs/mri_dataset_v1_2
+
+正式高清 smoke 命令：
+    conda run -n habitat python scripts/generate_dataset.py \
+      --config configs/collector_formal_smoke.json
+
+完整正式数据集命令：
+    conda run -n habitat python scripts/generate_dataset.py \
+      --config configs/collector.json
+
+collector_hd_preview.json 和 collector_pilot.json 已删除；其能力已经合并进唯一的
+正式高清 smoke，避免多个相似配置造成误用。
+
+
+二十九、v1.2 机器人浮空修复（当前最终状态）
+============================================================
+
+1. 根因
+-------
+
+旧 robot proxy 配置启用了 use_bounding_box_for_collision。Habitat 会对包含相机
+桅杆的完整 render AABB 建立居中的碰撞盒，而生成器又用 collision AABB 的最低点
+对齐地板。相机高度越高，AABB 越高，机器人圆盘就被托得越高。因此旧 v1.1 输出
+中的浮空不是截图错觉，而是几何协议错误，旧输出不应用于正式数据集。
+
+2. 模型与生成修复
+-----------------
+
+scripts/generate_robot_proxy_meshes.py 现在保证：
+    - 所有颜色和全部 0.4/0.6/0.9/1.2/1.4 m 高度变体的 OBJ 最低 Y 都是 0；
+    - 轮子和边刷位于地面接触层，圆盘主体保留合理离地间隙；
+    - 使用 mesh collision，不再使用包含高杆的 bounding-box collision；
+    - COM 固定为 [0, 0, 0]，collision margin 为 0.001 m。
+
+HabitatBackend._spawn(..., require_floor_origin=True) 对 robot 执行严格约束：
+    - render mesh local min Y 必须为 0，否则立即拒绝资产；
+    - proxy origin world Y 直接等于 physical floor Y；
+    - robot base_position_world 和 camera 的同步基点保持同一地面参考；
+    - 普通 controlled object 仍按 collision AABB min Y 做地面支撑，不受影响。
+
+3. 自动证据与拒绝条件
+---------------------
+
+每个 state.json 的 geometry_validation.robot_ground_support 保存每台机器人：
+    proxy_local_min_y_m
+    collision_local_min_y_m
+    proxy_origin_world_y_m
+    physical_floor_world_y_m
+    visual_bottom_world_y_m
+    support_gap_m
+    proxy_origin_offset_from_base_m
+
+生成时和 full validation 都会重新检查：
+    abs(support_gap_m) <= support_contact_tolerance_m（正式值 0.005 m）
+    abs(proxy_origin_offset_from_base_m) <= 1e-4 m
+
+Bullet 对地面接触使用单独的 robot_floor_collision_tolerance_m = 0.012 m，仅允许
+stage、近垂直法线、机器人底部位置的接触；墙体、家具、其他机器人以及非底部接触
+仍按严格 penetration tolerance 拒绝。该容差处理 Bullet mesh 接触查询约 10 mm 的
+数值穿透报告，不改变 render mesh 的视觉贴地位置。
+
+robot proxy 的 OBJ、MTL 和 object config 内容已加入 generation fingerprint；资产
+变化后不能 resume 到旧数据根目录，从协议层避免混合浮空和贴地样本。
+
+4. v1.2 UHD smoke 实测
+----------------------
+
+配置：configs/collector_formal_smoke.json
+输出：outputs/mri_dataset_formal_smoke_hd_v1_2
+结果：
+    2048 x 2048 robot RGB-D/instance/semantic
+    factual states = 4
+    interventions / after-states = 6
+    rendered states = 10
+    robot support reports = 30

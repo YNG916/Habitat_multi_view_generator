@@ -69,6 +69,32 @@ class FormalProtocolTests(unittest.TestCase):
         )
 
 
+    def test_replica_scene_ids_are_grouped_by_real_stage_family(self):
+        self.assertEqual(
+            self.config.layout_family("apt_0"), "frl_apartment_stage"
+        )
+        self.assertEqual(
+            self.config.layout_family("apt_5"), "frl_apartment_stage"
+        )
+        self.assertEqual(
+            self.config.layout_family("v3_sc2_staging_00"), "v3_sc2"
+        )
+        self.assertEqual(
+            self.config.layout_family("v3_sc2_staging_19"), "v3_sc2"
+        )
+
+    def test_same_stage_family_cannot_cross_splits(self):
+        with self.assertRaisesRegex(ValueError, "layout family appears"):
+            load_config(
+                scenes=["apt_0", "apt_5"],
+                scene_splits={"train": ["apt_0"], "val": ["apt_5"], "test": []},
+                scene_overrides={
+                    "apt_0": {"bev_camera_height_m": 2.2},
+                    "apt_5": {"bev_camera_height_m": 2.2},
+                },
+            )
+
+
 class NumericStorageTests(unittest.TestCase):
     def test_compressed_and_uncompressed_arrays_round_trip(self):
         array = np.arange(24, dtype=np.float32).reshape(4, 6)

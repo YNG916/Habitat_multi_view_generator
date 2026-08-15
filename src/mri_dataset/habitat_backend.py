@@ -253,6 +253,7 @@ class HabitatBackend:
         semantic_id: int,
         entity_id: str,
         support_floor_y: Optional[float] = None,
+        require_floor_origin: bool = False,
     ):
         manager = self.sim.get_rigid_object_manager()
         handle = self.resolve_runtime_handle(handle)
@@ -262,8 +263,18 @@ class HabitatBackend:
         obj.motion_type = self.habitat_sim.physics.MotionType.KINEMATIC
         translation = np.asarray(position, dtype=np.float64).copy()
         if support_floor_y is not None:
+            collision_min_y = float(obj.collision_shape_aabb.min[1])
+            visual_min_y = float(obj.root_scene_node.cumulative_bb.min[1])
+            if require_floor_origin and abs(visual_min_y) > 1e-4:
+                manager.remove_object_by_id(obj.object_id)
+                raise ValueError(
+                    f"{entity_id} visual proxy local ground is {visual_min_y:.6f} m; "
+                    "robot assets/COM must touch Y=0 so mesh and camera agree"
+                )
             translation[1] = (
-                float(support_floor_y) - float(obj.collision_shape_aabb.min[1])
+                float(support_floor_y)
+                if require_floor_origin
+                else float(support_floor_y) - collision_min_y
             )
         obj.rotation = self._rigid_quaternion(quaternion)
         obj.semantic_id = int(semantic_id)
@@ -303,6 +314,7 @@ class HabitatBackend:
                     handle, robot.base_position_world, yaw_to_quaternion_xyzw(robot.yaw_rad),
                     robot.proxy_semantic_id, robot.robot_id,
                     support_floor_y=robot.base_position_world[1],
+                    require_floor_origin=True,
                 )
         for obj_state in state.objects:
             if obj_state.active:
@@ -389,6 +401,32 @@ class HabitatBackend:
         finally:
             manager.remove_object_by_id(rigid.object_id)
 
+    def robot_support_report(self, state: WorldState, target_id: str) -> dict:
+        """Measure rendered proxy ground contact and base/camera alignment."""
+        robot = state.robot(target_id)
+        self.apply_world_state(state)
+        rigid_id = self.render_ids[target_id][0]
+        rigid = self.sim.get_rigid_object_manager().get_object_by_id(rigid_id)
+        if rigid is None:
+            raise RuntimeError(f"Spawned robot proxy disappeared: {target_id}")
+        collision_min_y = float(rigid.collision_shape_aabb.min[1])
+        visual_min_y = float(rigid.root_scene_node.cumulative_bb.min[1])
+        proxy_origin_y = float(rigid.translation[1])
+        physical_floor_y = self.floor_surface_y(robot.base_position_world)
+        visual_bottom_y = proxy_origin_y + visual_min_y
+        return {
+            "robot_id": target_id,
+            "proxy_local_min_y_m": visual_min_y,
+            "collision_local_min_y_m": collision_min_y,
+            "proxy_origin_world_y_m": proxy_origin_y,
+            "physical_floor_world_y_m": physical_floor_y,
+            "visual_bottom_world_y_m": visual_bottom_y,
+            "support_gap_m": visual_bottom_y - physical_floor_y,
+            "proxy_origin_offset_from_base_m": (
+                proxy_origin_y - float(robot.base_position_world[1])
+            ),
+        }
+
     def entity_collision_report(self, state: WorldState, target_id: str) -> dict:
         """Use Bullet contacts to reject entity penetration.
 
@@ -409,9 +447,11 @@ class HabitatBackend:
         try:
             robot = state.robot(target_id)
             quaternion = yaw_to_quaternion_xyzw(robot.yaw_rad)
+            is_robot = True
         except KeyError:
             obj = state.object(target_id)
             quaternion = obj.quaternion_world_xyzw
+            is_robot = False
         position = np.asarray(rigid.translation, dtype=np.float64)
         bbox = aabb_dict(
             rigid.collision_shape_aabb,
@@ -424,6 +464,10 @@ class HabitatBackend:
         rigid.angular_velocity = np.zeros(3, dtype=np.float32)
         penetration_tolerance = float(self.config.collision_penetration_tolerance_m)
         support_tolerance = float(self.config.support_contact_tolerance_m)
+        floor_contact_tolerance = (
+            float(self.config.robot_floor_collision_tolerance_m)
+            if is_robot else support_tolerance
+        )
         self.sim.perform_discrete_collision_detection()
         rejected = []
         contacts_checked = 0
@@ -446,7 +490,7 @@ class HabitatBackend:
                 other_id == int(self.habitat_sim.stage_id)
                 and abs(float(normal[1])) >= 0.9
                 and abs(float(target_position[1]) - bbox_bottom) <= 0.03
-                and distance >= -support_tolerance
+                and distance >= -floor_contact_tolerance
             )
             if not is_floor_support:
                 rejected.append({

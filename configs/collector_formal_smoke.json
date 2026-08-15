@@ -1,19 +1,17 @@
 {
   "scene_dataset_config": "data/replica_cad/replicaCAD.scene_dataset_config.json",
   "scenes": [
-    "apt_0",
-    "apt_1",
-    "apt_2",
-    "apt_3",
-    "apt_4",
-    "apt_5"
+    "v3_sc0_staging_00",
+    "v3_sc1_staging_00",
+    "v3_sc2_staging_00",
+    "v3_sc3_staging_00"
   ],
   "navmesh_root": "data/replica_cad/navmeshes",
-  "output_root": "outputs/mri_dataset_formal_smoke",
+  "output_root": "outputs/mri_dataset_formal_smoke_hd_v1_2",
   "gpu_device_id": 0,
   "num_robots": 3,
-  "width": 256,
-  "height": 256,
+  "width": 2048,
+  "height": 2048,
   "hfov_deg": 90.0,
   "near": 0.05,
   "far": 20.0,
@@ -25,7 +23,7 @@
   "floor_tolerance_m": 0.25,
   "heading_mode": "mixed",
   "shared_heading_jitter_deg": 20.0,
-  "bev_meters_per_pixel": 0.05,
+  "bev_meters_per_pixel": 0.00625,
   "bev_camera_height_m": 2.2,
   "bev_ceiling_clearance_m": 0.15,
   "bev_near": 0.02,
@@ -34,9 +32,10 @@
   "height_validation_max_error_m": 0.02,
   "collision_penetration_tolerance_m": 0.002,
   "support_contact_tolerance_m": 0.005,
+  "robot_floor_collision_tolerance_m": 0.012,
   "max_state_sampling_attempts": 100,
   "enable_instance": true,
-  "benchmark_visibility_min_pixels": 10,
+  "benchmark_visibility_min_pixels": 64,
   "enable_robot_proxies": true,
   "robot_proxy_configs": [
     "assets/robot_proxies/robot_red.object_config.json",
@@ -54,27 +53,21 @@
   "num_edits_per_state": 1,
   "random_seed": 123,
   "scene_overrides": {
-    "apt_0": {
+    "v3_sc0_staging_00": {
       "bev_camera_height_m": 2.2
     },
-    "apt_1": {
+    "v3_sc1_staging_00": {
       "bev_camera_height_m": 2.2
     },
-    "apt_2": {
+    "v3_sc2_staging_00": {
       "bev_camera_height_m": 2.2
     },
-    "apt_3": {
-      "bev_camera_height_m": 2.2
-    },
-    "apt_4": {
-      "bev_camera_height_m": 2.2
-    },
-    "apt_5": {
+    "v3_sc3_staging_00": {
       "bev_camera_height_m": 2.2
     }
   },
   "dataset_version": "1.0.0",
-  "protocol_version": "mri-formal-v1",
+  "protocol_version": "mri-formal-v1.2",
   "min_target_visible_observers": 1,
   "num_states_by_split": {
     "train": 1,
@@ -82,21 +75,19 @@
     "test": 1
   },
   "resume": true,
-  "save_visualizations": false,
+  "save_visualizations": true,
   "compress_numeric_arrays": true,
   "max_intervention_sampling_attempts": 80,
   "scene_splits": {
     "train": [
-      "apt_0",
-      "apt_1",
-      "apt_2",
-      "apt_3"
+      "v3_sc0_staging_00",
+      "v3_sc1_staging_00"
     ],
     "val": [
-      "apt_4"
+      "v3_sc2_staging_00"
     ],
     "test": [
-      "apt_5"
+      "v3_sc3_staging_00"
     ]
   },
   "level2_regimes_by_split": {
@@ -192,7 +183,7 @@
   },
   "pinhole_validation_min_samples": 3,
   "pinhole_validation_median_error_m": 0.03,
-  "height_validation_min_samples": 6,
+  "height_validation_min_samples": 8,
   "enable_semantic": true,
   "semantic_category_ids": {
     "robot": 1,
@@ -200,5 +191,11 @@
     "bowl": 11,
     "book": 12
   },
-  "run_multilevel_calibration_preflight": true
+  "run_multilevel_calibration_preflight": true,
+  "scene_layout_families": {
+    "v3_sc0_staging_00": "Stage_v3_sc0_staging",
+    "v3_sc1_staging_00": "Stage_v3_sc1_staging",
+    "v3_sc2_staging_00": "Stage_v3_sc2_staging",
+    "v3_sc3_staging_00": "Stage_v3_sc3_staging"
+  }
 }

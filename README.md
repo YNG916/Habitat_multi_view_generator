@@ -6,8 +6,10 @@
 
 正式配置是 `configs/collector.json`：
 
-- 场景：`apt_0`–`apt_5`。
-- 场景隔离划分：train=`apt_0..3`，val=`apt_4`，test=`apt_5`。
+- 数据限制：ReplicaCAD 的全部 scene 都来自同一个 FRL apartment 建筑壳体；它不提供跨住宅/跨房型多样性。
+- 正式 scene instances：公开的 `v3_sc0`–`v3_sc3` 四个 macro furniture layouts，每个使用 `_00`、`_01` 两个 micro rearrangements。
+- macro-layout 隔离划分：train=`sc0,sc1`，val=`sc2`，test=`sc3`；同一 macro family 不会跨 split。
+- 该划分衡量“同一公寓中的未见家具宏布局”泛化，不能写成“未见房间/未见住宅”泛化。
 - 机器人视角：`2048 × 2048` RGB、metric Z-depth、OBJECT_ID、controlled semantic。
 - BEV：目标分辨率 `0.00625 m/pixel`，实际宽高由每个场景的 visual AABB 决定。
 - factual states：train 4000、val 250、test 250，共 4500。
@@ -29,30 +31,55 @@ OOD 参数域：
 
 动作类型、目标、方向、reference robot 和距离由稳定 SHA-256 seed 确定性采样。目标必须至少被一个机器人看到 64 个像素；非法路径、碰撞、错误地面支撑和重复 intervention 会被拒绝并确定性重采样。
 
-## 一键生成
+## 为什么 apt_0–apt_5 看起来是同一个房间
 
-先运行六场景正式 smoke test：
+这不是采样器重复加载场景，而是 ReplicaCAD 数据本身的定义：`apt_0`–`apt_5`
+都实例化同一个 `frl_apartment_stage`，主要改变家具和对象配置。仓库现在按实际 stage
+family 做强制校验；把同一个 family 放进多个 split 会在启动时直接报错。
+
+本地只安装了 ReplicaCAD，因此当前无法提供真正不同建筑/房型。若论文目标包含
+architecture-level generalization，需要另行安装并接入 HM3D、Gibson 或 MP3D，且按
+house/scene ID 隔离；不要把 ReplicaCAD macro layouts 当作不同住宅。
+
+## 正式高清 smoke（先运行这个）
+
+唯一的正式 smoke 配置是 `configs/collector_formal_smoke.json`。它不是缩略图模式，
+而是直接使用与完整数据集相同的图像规格：
+
+- 每个机器人 RGB-D/instance/semantic：`2048×2048`；
+- BEV：约 `1163×2078`、约 `0.00625 m/pixel`；
+- 四个 macro families 各取一个代表 scene；
+- 每个 scene 生成 1 个 factual state；
+- train 生成 ID intervention，val/test 同时生成 ID 和 OOD intervention；
+- 保存 annotated BEV、深度可视化和 `contact_sheet.png`；
+- 最后执行 full Bullet/geometry validation。
+
+直接运行完整高清 smoke：
 
 ```bash
 conda run -n habitat python scripts/generate_dataset.py \
   --config configs/collector_formal_smoke.json
 ```
 
-它会生成 6 个 factual states、8 个 ID/OOD edits，执行四高度标定和 full Bullet validation。通过后再启动完整数据集：
+默认输出：`outputs/mri_dataset_formal_smoke_hd_v1_2`。当前实测生成 4 个 factual、
+6 个 intervention/after-states，共 10 个渲染状态，约 189 MB，full validation
+通过。v1.2 同时强制检查 robot proxy 视觉底面、物理地面和 base/camera 原点；旧
+`mri_dataset_formal_smoke_hd`（v1.1）存在高杆机器人浮空问题，不应继续使用。
+成功后再运行完整正式数据集：
 
 ```bash
 conda run -n habitat python scripts/generate_dataset.py \
   --config configs/collector.json
 ```
 
-正式输出目录默认是 `outputs/mri_dataset_v1`。同一命令可以安全重复执行：完整 state/edit 会跳过，未完成的 after-state transaction 会恢复，不会覆盖已发布样本。配置指纹不一致时会拒绝把两种协议混入同一个 root。
+完整正式输出默认是 `outputs/mri_dataset_v1_2`。两个配置的传感器分辨率和几何协议
+相同，区别仅在场景实例数、每场景状态数和是否额外保存人工检查图。相同命令可安全
+重复执行；已完成样本会跳过，配置指纹不一致时会拒绝混合输出。
 
-建议长任务先确认磁盘空间。当前 apt_1 单条 2048 factual state 的实测压缩体积约
-12 MB，线性估算 14500 个状态约 174 GB；不同场景、after-state 和 PNG/NPZ
-压缩率会使最终体积波动，因此仍建议预留 200–300 GB 并用 smoke 实测：
+建议完整生成前检查高清 smoke 的实际体积：
 
 ```bash
-du -sh outputs/mri_dataset_formal_smoke
+du -sh outputs/mri_dataset_formal_smoke_hd_v1_2
 ```
 
 ## 分阶段运行
@@ -83,7 +110,7 @@ conda run -n habitat python scripts/generate_dataset.py \
 ```bash
 conda run -n habitat python scripts/generate_dataset.py \
   --config configs/collector_formal_smoke.json \
-  --scene apt_1 --num-states 1 --num-edits-per-state 1
+  --scene v3_sc0_staging_00 --num-states 1 --num-edits-per-state 1
 ```
 
 `num-edits-per-state` 是“每个 factual state、每个 regime”的数量。例如 val 的 `id,ood` 且值为 2 时，每个 factual state 会得到 4 个 after-states。
@@ -130,7 +157,7 @@ mri_dataset_v1/
 - robot/object 对场景家具、墙体和受控实体的 Bullet collision；
 - 物体目标位置重新支撑到局部 physical floor；
 - factual state 至少存在一个 benchmark-visible robot target 和 object target；
-- train/val/test apartment-family 防泄漏、ID/OOD 参数域和 manifest 完整性。
+- train/val/test ReplicaCAD macro-family 防泄漏、ID/OOD 参数域和 manifest 完整性。
 
 ## Robot mesh 与相机高度
 
@@ -149,7 +176,7 @@ ReplicaCAD 安装包没有完整原生 room/furniture semantic scene，因此 `s
 ## 测试
 
 ```bash
-conda run -n habitat python -m unittest discover -s tests -v
+PYTHONPATH=src conda run -n habitat python -m unittest discover -s tests -v
 ```
 
 测试包含纯 Python 协议测试，以及真实 Habitat/ReplicaCAD/Bullet 的 orthographic、多高度、OBJECT_ID/semantic、碰撞、路径和地面支撑测试。

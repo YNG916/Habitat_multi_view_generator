@@ -13,14 +13,14 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 @dataclass
 class CollectorConfig:
     dataset_version: str = "1.0.0"
-    protocol_version: str = "mri-formal-v1"
+    protocol_version: str = "mri-formal-v1.2"
     scene_dataset_config: str = "data/replica_cad/replicaCAD.scene_dataset_config.json"
     scenes: List[str] = field(default_factory=lambda: ["apt_1"])
     navmesh_root: str = "data/replica_cad/navmeshes"
     output_root: str = "outputs/mri_dataset"
     gpu_device_id: int = 0
     num_robots: int = 3
-    # Formal dataset defaults. Use collector_pilot.json for quick validation.
+    # Formal UHD defaults. Use collector_formal_smoke.json for a small run.
     width: int = 2048
     height: int = 2048
     hfov_deg: float = 90.0
@@ -46,6 +46,7 @@ class CollectorConfig:
     height_validation_max_error_m: float = 0.02
     collision_penetration_tolerance_m: float = 0.002
     support_contact_tolerance_m: float = 0.005
+    robot_floor_collision_tolerance_m: float = 0.012
     max_state_sampling_attempts: int = 100
     enable_instance: bool = True
     enable_semantic: bool = True
@@ -88,6 +89,9 @@ class CollectorConfig:
     scene_splits: Dict[str, List[str]] = field(
         default_factory=lambda: {"train": ["apt_1"], "val": [], "test": []}
     )
+    # A scene instance can change furniture without changing the underlying
+    # rendered stage. Splits are isolated by this identity, not by scene ID.
+    scene_layout_families: Dict[str, str] = field(default_factory=dict)
     level2_regimes_by_split: Dict[str, List[str]] = field(
         default_factory=lambda: {
             "train": ["id"],
@@ -155,9 +159,41 @@ class CollectorConfig:
             )
         return matches[0]
 
+    def layout_family(self, scene_id: str) -> str:
+        explicit = self.scene_layout_families.get(scene_id)
+        if explicit:
+            return explicit
+        # ReplicaCAD apt_0..apt_5 all instantiate frl_apartment_stage. The
+        # v3 staging suffix selects a furniture rearrangement, not a new stage.
+        if scene_id.startswith("apt_"):
+            return "frl_apartment_stage"
+        prefix = scene_id.split("_staging_", 1)[0]
+        if prefix.startswith("v3_sc"):
+            return prefix
+        return scene_id
+
     def states_for_scene(self, scene_id: str) -> int:
         split = self.scene_split(scene_id)
         return int(self.num_states_by_split.get(split, self.num_states))
+
+    def robot_proxy_asset_fingerprints(self) -> Dict[str, str]:
+        """Hash proxy configs, meshes and materials that affect rendered bytes."""
+        configured = list(self.robot_proxy_configs)
+        for variants in self.robot_proxy_height_variants.values():
+            configured.extend(variants)
+        directories = sorted({self.resolve(path).parent for path in configured})
+        result: Dict[str, str] = {}
+        for directory in directories:
+            if not directory.is_dir():
+                result[str(directory)] = "missing"
+                continue
+            for asset in sorted(path for path in directory.iterdir() if path.is_file()):
+                try:
+                    key = str(asset.relative_to(REPO_ROOT))
+                except ValueError:
+                    key = str(asset)
+                result[key] = hashlib.sha256(asset.read_bytes()).hexdigest()
+        return result
 
     def generation_fingerprint(self) -> str:
         """Fingerprint fields that change generated sample semantics or bytes."""
@@ -170,6 +206,7 @@ class CollectorConfig:
             "resume",
         ):
             data.pop(key, None)
+        data["_robot_proxy_assets_sha256"] = self.robot_proxy_asset_fingerprints()
         payload = json.dumps(data, sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
@@ -185,6 +222,26 @@ class CollectorConfig:
             raise ValueError("scene_splits must assign every configured scene exactly once")
         if set(self.scene_splits) != {"train", "val", "test"}:
             raise ValueError("scene_splits must contain train, val, and test")
+        unknown_layout_scenes = set(self.scene_layout_families) - set(self.scenes)
+        if unknown_layout_scenes:
+            raise ValueError(
+                "scene_layout_families contains unknown scenes: "
+                f"{sorted(unknown_layout_scenes)}"
+            )
+        family_splits: Dict[str, set] = {}
+        for split, scenes in self.scene_splits.items():
+            for scene in scenes:
+                family_splits.setdefault(self.layout_family(scene), set()).add(split)
+        leaked = {
+            family: sorted(splits)
+            for family, splits in family_splits.items()
+            if len(splits) > 1
+        }
+        if leaked:
+            raise ValueError(
+                "A rendered stage layout family appears in multiple splits: "
+                f"{leaked}"
+            )
         for scene in self.scenes:
             if "bev_camera_height_m" not in self.scene_overrides.get(scene, {}):
                 raise ValueError(

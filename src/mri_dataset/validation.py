@@ -22,6 +22,7 @@ class ValidationError(RuntimeError):
 BEV_REGISTRATION_MAX_ERROR_PIXELS = 3.0
 BEV_REGISTRATION_MIN_TOLERANCE_M = 0.02
 DEFAULT_HEIGHT_VALIDATION_MAX_ERROR_M = 0.02
+DEFAULT_SUPPORT_CONTACT_TOLERANCE_M = 0.005
 
 
 def instance_centroid_registration(pixels_rc, u, v, mapping):
@@ -64,6 +65,7 @@ def validate_state_dir(
     tolerance: float = 1e-5,
     minimum_separation_m: float = 0.0,
     height_max_error_m: float = DEFAULT_HEIGHT_VALIDATION_MAX_ERROR_M,
+    support_contact_tolerance_m: float = DEFAULT_SUPPORT_CONTACT_TOLERANCE_M,
 ) -> List[str]:
     state_dir = Path(state_dir)
     errors: List[str] = []
@@ -87,6 +89,23 @@ def validate_state_dir(
                 f"BEV height ray error {float(max_error):.6f} m exceeds "
                 f"{height_max_error_m:.6f} m"
             )
+    ground_support = metadata.get("geometry_validation", {}).get(
+        "robot_ground_support", {}
+    )
+    if set(ground_support) != {
+        robot["robot_id"] for robot in metadata["robots"]
+    }:
+        errors.append("robot ground-support reports are missing or incomplete")
+    else:
+        for robot_id, report in ground_support.items():
+            if abs(float(report.get(
+                "support_gap_m", math.inf
+            ))) > support_contact_tolerance_m:
+                errors.append(f"{robot_id}: visual proxy is not grounded")
+            if abs(float(report.get(
+                "proxy_origin_offset_from_base_m", math.inf
+            ))) > 1e-4:
+                errors.append(f"{robot_id}: proxy origin is not aligned with base")
     for robot in metadata["robots"]:
         robot_id = robot["robot_id"]
         base = np.asarray(robot["base_position_world"], dtype=np.float64)
@@ -284,7 +303,7 @@ def validate_dataset_manifest(root: Path, config=None) -> List[str]:
         split_edit_sets.append(set(payload.get("interventions", [])))
         if config is not None:
             expected_families = {
-                scene for scene in config.scene_splits[split]
+                config.layout_family(scene) for scene in config.scene_splits[split]
             }
             actual_families = set(payload.get("layout_families", []))
             if not actual_families.issubset(expected_families):
@@ -371,6 +390,10 @@ def validate_dataset(root: Path, config=None) -> Dict[str, object]:
                     config.height_validation_max_error_m
                     if config else DEFAULT_HEIGHT_VALIDATION_MAX_ERROR_M
                 ),
+                support_contact_tolerance_m=(
+                    config.support_contact_tolerance_m
+                    if config else DEFAULT_SUPPORT_CONTACT_TOLERANCE_M
+                ),
             )
             if config is not None:
                 from .state_io import load_world_state
@@ -409,6 +432,25 @@ def validate_dataset(root: Path, config=None) -> Dict[str, object]:
                         errors.append(
                             f"{robot.robot_id}: proxy collision "
                             f"{collision['rejected_contacts']}"
+                        )
+            if config is not None:
+                for robot in world_state.robots:
+                    support = backend.robot_support_report(
+                        world_state, robot.robot_id
+                    )
+                    if abs(float(support["support_gap_m"])) > float(
+                        config.support_contact_tolerance_m
+                    ):
+                        errors.append(
+                            f"{robot.robot_id}: physical support gap "
+                            f"{support['support_gap_m']:.6f} m"
+                        )
+                    if abs(float(
+                        support["proxy_origin_offset_from_base_m"]
+                    )) > 1e-4:
+                        errors.append(
+                            f"{robot.robot_id}: proxy/base origin offset "
+                            f"{support['proxy_origin_offset_from_base_m']:.6f} m"
                         )
             if errors:
                 report["errors"][str(state_json.parent.relative_to(root))] = errors
