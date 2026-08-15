@@ -13,12 +13,16 @@ and occupancy is computed once per scene/floor with Habitat's top-down API.
 Habitat-Sim 0.3.3 pinhole depth is metric, but its generic unprojection pass
 does not produce linear distance for an orthographic projection. BEV depth is
 therefore orthographically linearized before computing
-`camera_height_above_floor - metric_depth`; a real Habitat/Bullet integration
-test guards this behavior and every state is rejected if ray errors exceed 2 cm.
+`camera_height_above_floor - metric_depth`. Valid reciprocal pseudo-depth is
+accepted on both sides of the v0.3.3 singularity and checked through the
+recovered depth-buffer interval. A real Habitat/Bullet integration test guards
+this behavior and every state is rejected if floor-ray errors exceed 2 cm.
 Instance arrays explicitly target
 `SemanticSensorTarget.OBJECT_ID`; per-state runtime object-ID mappings are
-stored in metadata. Level-2 object edits are checked against Bullet contacts,
-including static ReplicaCAD furniture and walls.
+stored in metadata. Level-1 robot proxies and Level-2 robot/object edits are
+checked against Bullet contacts, including static ReplicaCAD furniture and
+walls. Robot forward edits must also complete the exact no-sliding NavMesh
+segment and are supported on the physical floor at the target XZ.
 
 Robot proxies are lightweight 32-sided robot-vacuum meshes with a layered shell,
 rubber bumper, drive wheels, side brush, lidar turret, status button, and
@@ -31,7 +35,7 @@ Run from this directory with the existing `habitat` environment:
 conda run -n habitat python -m unittest discover -s tests -v
 conda run -n habitat python scripts/debug_world_state.py --scene apt_1 --seed 123
 conda run -n habitat python scripts/collect_level1.py --config configs/collector.json --num-states 10
-conda run -n habitat python scripts/collect_level2.py --config configs/collector.json --root outputs/mri_dataset --type robot_translate
+conda run -n habitat python scripts/collect_level2.py --config configs/collector.json --root outputs/mri_dataset --num-edits 10 --type robot_translate
 conda run -n habitat python scripts/validate_dataset.py --root outputs/mri_dataset
 conda run -n habitat python scripts/make_contact_sheet.py --root outputs/mri_dataset --num-samples 10
 ```
@@ -39,5 +43,13 @@ conda run -n habitat python scripts/make_contact_sheet.py --root outputs/mri_dat
 For a smaller smoke test, replace `configs/collector.json` with
 `configs/collector_pilot.json`; its default output is
 `outputs/mri_dataset_pilot`.
+
+Visibility metadata keeps both `geometrically_visible` (at least one OBJECT_ID
+pixel) and `benchmark_visible` (at least 20 pixels by default). Dataset indexes
+and split files keep factual Level-1 states, intervention-derived after-states,
+and intervention records in separate fields; after-states are not silently
+listed as factual training inputs. `--num-edits-per-state` remains accepted as
+a legacy alias for `--num-edits`, whose value is the total valid edits produced
+by one command.
 
 `scripts/list_object_templates.py` reports installed handles; collection uses only the whitelist in `configs/collector.json`. Missing traditional ReplicaCAD semantic annotations do not block RGB-D, BEV, or state generation. The `instance.npy` channel stores Habitat rigid-object IDs, with the exact per-state entity mapping recorded in `state.json`.

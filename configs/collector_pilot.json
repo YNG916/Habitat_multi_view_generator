@@ -27,7 +27,9 @@
   "height_validation_max_error_m": 0.02,
   "collision_penetration_tolerance_m": 0.002,
   "support_contact_tolerance_m": 0.005,
+  "max_state_sampling_attempts": 100,
   "enable_instance": true,
+  "benchmark_visibility_min_pixels": 20,
   "enable_robot_proxies": true,
   "robot_proxy_configs": [
     "assets/robot_proxies/robot_red.object_config.json",

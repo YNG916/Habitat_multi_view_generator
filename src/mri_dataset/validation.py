@@ -8,7 +8,7 @@ from typing import Dict, List, Optional
 import numpy as np
 from PIL import Image
 
-from .bev import BevMapping, ROBOT_COLORS
+from .bev import BevMapping
 from .coordinates import forward_from_quaternion, yaw_to_quaternion_xyzw
 from .state_io import read_json
 
@@ -17,17 +17,36 @@ class ValidationError(RuntimeError):
     pass
 
 
-ROBOT_PROXY_REGISTRATION_TOLERANCE_M = 0.35
+BEV_REGISTRATION_MAX_ERROR_PIXELS = 3.0
+BEV_REGISTRATION_MIN_TOLERANCE_M = 0.02
 DEFAULT_HEIGHT_VALIDATION_MAX_ERROR_M = 0.02
 
 
-def nearest_instance_distance_m(pixels_rc, u, v, mapping):
+def instance_centroid_registration(pixels_rc, u, v, mapping):
+    """Compare an OBJECT_ID mask centroid with its known world-space origin."""
     pixels = np.asarray(pixels_rc, dtype=np.float64)
-    if not len(pixels):
-        return None
-    dx = (pixels[:, 1] - float(u)) * mapping.meters_per_pixel_x
-    dz = (pixels[:, 0] - float(v)) * mapping.meters_per_pixel_z
-    return float(np.min(np.hypot(dx, dz)))
+    if pixels.ndim != 2 or pixels.shape[1:] != (2,) or not len(pixels):
+        raise ValueError("Instance mask must contain at least one [row, col] pixel")
+    centroid_v, centroid_u = np.mean(pixels, axis=0)
+    delta_u = float(centroid_u - float(u))
+    delta_v = float(centroid_v - float(v))
+    error_m = float(
+        np.hypot(
+            delta_u * mapping.meters_per_pixel_x,
+            delta_v * mapping.meters_per_pixel_z,
+        )
+    )
+    tolerance_m = max(
+        BEV_REGISTRATION_MIN_TOLERANCE_M,
+        BEV_REGISTRATION_MAX_ERROR_PIXELS
+        * max(mapping.meters_per_pixel_x, mapping.meters_per_pixel_z),
+    )
+    return {
+        "centroid_uv": [float(centroid_u), float(centroid_v)],
+        "error_pixels": float(np.hypot(delta_u, delta_v)),
+        "error_m": error_m,
+        "tolerance_m": float(tolerance_m),
+    }
 
 
 def _matrix(item, key):
@@ -132,31 +151,34 @@ def validate_state_dir(
     if "instance" in bev["files"]:
         try:
             bev_instance = np.load(state_dir / bev["files"]["instance"])
-            annotated = np.asarray(Image.open(state_dir / bev["files"]["annotated"]).convert("RGB"))
             if bev_instance.shape != (mapping.height, mapping.width):
                 errors.append("BEV instance: invalid shape")
             if bev.get("instance_id_encoding") != "Habitat SemanticSensorTarget.OBJECT_ID":
                 errors.append("BEV instance channel is not declared as Habitat OBJECT_ID")
             entity_object_ids = bev.get("entity_object_ids", {})
-            for index, robot in enumerate(metadata["robots"]):
-                u, v = mapping.world_to_bev(robot["base_position_world"][0], robot["base_position_world"][2])
+            for robot in metadata["robots"]:
+                u, v = mapping.world_to_bev(
+                    robot["base_position_world"][0],
+                    robot["base_position_world"][2],
+                )
                 object_id = entity_object_ids.get(robot["robot_id"])
                 if object_id is None:
                     errors.append(f"{robot['robot_id']}: missing runtime OBJECT_ID mapping")
                     continue
                 pixels = np.argwhere(bev_instance == int(object_id))
-                if len(pixels):
-                    nearest_m = nearest_instance_distance_m(pixels, u, v, mapping)
-                    if nearest_m > ROBOT_PROXY_REGISTRATION_TOLERANCE_M:
-                        errors.append(
-                            f"{robot['robot_id']}: BEV proxy is misregistered by {nearest_m:.3f} m"
-                        )
-                else:
-                    col, row = int(round(u)), int(round(v))
-                    patch = annotated[max(0, row-3):row+4, max(0, col-3):col+4]
-                    expected = np.asarray(ROBOT_COLORS[index % len(ROBOT_COLORS)])
-                    if not np.any(np.all(patch == expected, axis=-1)):
-                        errors.append(f"{robot['robot_id']}: neither proxy nor annotation is registered to BEV")
+                if not len(pixels):
+                    errors.append(
+                        f"{robot['robot_id']}: robot proxy is absent from BEV OBJECT_ID mask"
+                    )
+                    continue
+                registration = instance_centroid_registration(pixels, u, v, mapping)
+                if registration["error_m"] > registration["tolerance_m"]:
+                    errors.append(
+                        f"{robot['robot_id']}: BEV proxy centroid is misregistered by "
+                        f"{registration['error_m']:.3f} m / "
+                        f"{registration['error_pixels']:.2f} px "
+                        f"(limit {registration['tolerance_m']:.3f} m)"
+                    )
         except Exception as exc:
             errors.append(f"BEV instance: {exc}")
     objects_path = state_dir / metadata["objects_path"]
@@ -199,10 +221,11 @@ def validate_dataset(root: Path, config=None) -> Dict[str, object]:
             if config is not None:
                 from .state_io import load_world_state
                 world_state = load_world_state(state_json.parent)
+                backend = backends[scene_id]
                 for obj in world_state.objects:
                     if not obj.active:
                         continue
-                    collision = backends[scene_id].object_collision_report(
+                    collision = backend.object_collision_report(
                         world_state, obj.instance_id
                     )
                     if not collision["collision_free"]:
@@ -210,32 +233,118 @@ def validate_dataset(root: Path, config=None) -> Dict[str, object]:
                             f"{obj.instance_id}: static-scene collision "
                             f"{collision['rejected_contacts']}"
                         )
+                    floor_point = np.asarray(
+                        backend.sim.pathfinder.snap_point(obj.position_world),
+                        dtype=np.float64,
+                    )
+                    physical_floor_y = backend.floor_surface_y(floor_point)
+                    bottom = float(obj.bbox["min_world"][1])
+                    support_error = abs(bottom - physical_floor_y)
+                    if support_error > max(
+                        0.01, float(config.support_contact_tolerance_m)
+                    ):
+                        errors.append(
+                            f"{obj.instance_id}: physical support error "
+                            f"{support_error:.4f} m"
+                        )
+                for robot in world_state.robots:
+                    collision = backend.entity_collision_report(
+                        world_state, robot.robot_id
+                    )
+                    if not collision["collision_free"]:
+                        errors.append(
+                            f"{robot.robot_id}: proxy collision "
+                            f"{collision['rejected_contacts']}"
+                        )
             if errors:
                 report["errors"][str(state_json.parent.relative_to(root))] = errors
         for edit_path in sorted(root.glob("interventions/*/edit_*.json")):
             edit = read_json(edit_path)
-            if edit["structured_intervention"]["type"] == "robot_translate":
-                before = read_json(root / edit["before_state_path"] / "state.json")
-                after = read_json(root / edit["after_state_path"] / "state.json")
-                target = edit["structured_intervention"]["target_id"]
-                b = next(r for r in before["robots"] if r["robot_id"] == target)
-                a = next(r for r in after["robots"] if r["robot_id"] == target)
-                actual = float(np.linalg.norm(np.asarray(a["base_position_world"]) - np.asarray(b["base_position_world"])))
-                expected = abs(float(edit["structured_intervention"]["forward_m"]))
-                if not math.isclose(actual, expected, abs_tol=1e-6):
-                    report["errors"][str(edit_path.relative_to(root))] = [
-                        f"robot translation is {actual}, requested {expected}"
-                    ]
-            elif edit["structured_intervention"]["type"] == "object_translate":
-                before_objects = read_json(root / edit["before_state_path"] / "objects.json")
-                after_objects = read_json(root / edit["after_state_path"] / "objects.json")
-                target = edit["structured_intervention"]["target_id"]
-                b = next(o for o in before_objects if o["instance_id"] == target)
-                a = next(o for o in after_objects if o["instance_id"] == target)
-                actual = np.asarray(a["position_world"]) - np.asarray(b["position_world"])
-                expected = np.asarray(edit["structured_intervention"]["displacement_m"])
-                if not np.allclose(actual, expected, atol=1e-6):
-                    report["errors"][str(edit_path.relative_to(root))] = ["object displacement mismatch"]
+            relative_edit = str(edit_path.relative_to(root))
+            edit_errors = []
+            try:
+                from .interventions import (
+                    Intervention,
+                    apply_intervention,
+                    canonical_instruction,
+                    validate_robot_translation,
+                )
+                from .state_io import load_world_state
+
+                before = load_world_state(root / edit["before_state_path"])
+                after = load_world_state(root / edit["after_state_path"])
+                intervention = Intervention.from_dict(edit["structured_intervention"])
+                expected_instruction = canonical_instruction(intervention, before)
+                if edit.get("instruction") != expected_instruction:
+                    edit_errors.append(
+                        "canonical instruction is not equivalent to structured intervention"
+                    )
+
+                if intervention.type == "robot_translate":
+                    if config is not None:
+                        backend = backends[edit["scene_id"]]
+                        validate_robot_translation(
+                            before,
+                            after,
+                            intervention,
+                            backend.sim.pathfinder,
+                            config.floor_tolerance_m,
+                            config.min_inter_robot_distance_m,
+                        )
+                        robot = after.robot(intervention.target_id)
+                        nav_target = np.asarray(
+                            backend.sim.pathfinder.snap_point(
+                                robot.base_position_world
+                            ),
+                            dtype=np.float64,
+                        )
+                        physical_floor_y = backend.floor_surface_y(nav_target)
+                        if abs(
+                            float(robot.base_position_world[1]) - physical_floor_y
+                        ) > 0.01:
+                            edit_errors.append(
+                                "robot target Y is not supported by the physical floor"
+                            )
+                    else:
+                        old = np.asarray(
+                            before.robot(intervention.target_id).base_position_world
+                        )
+                        new = np.asarray(
+                            after.robot(intervention.target_id).base_position_world
+                        )
+                        actual = float(np.linalg.norm((new - old)[[0, 2]]))
+                        expected = float(intervention.parameters["forward_m"])
+                        if not math.isclose(actual, expected, abs_tol=1e-6):
+                            edit_errors.append(
+                                f"horizontal robot translation is {actual}, "
+                                f"requested {expected}"
+                            )
+                elif intervention.type == "object_translate":
+                    requested = np.asarray(
+                        intervention.parameters["displacement_m"],
+                        dtype=np.float64,
+                    )
+                    if requested.shape != (3,) or abs(float(requested[1])) > 1e-9:
+                        edit_errors.append(
+                            "floor-supported object_translate requires Y displacement 0"
+                        )
+                    expected_after = apply_intervention(before, intervention)
+                    expected_position = np.asarray(
+                        expected_after.object(intervention.target_id).position_world
+                    )
+                    actual_position = np.asarray(
+                        after.object(intervention.target_id).position_world
+                    )
+                    if not np.allclose(
+                        actual_position[[0, 2]],
+                        expected_position[[0, 2]],
+                        atol=1e-6,
+                    ):
+                        edit_errors.append("object horizontal displacement mismatch")
+            except (KeyError, RuntimeError, ValueError) as exc:
+                edit_errors.append(str(exc))
+            if edit_errors:
+                report["errors"].setdefault(relative_edit, []).extend(edit_errors)
     finally:
         for backend in backends.values():
             backend.close()

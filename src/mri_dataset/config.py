@@ -40,7 +40,9 @@ class CollectorConfig:
     height_validation_max_error_m: float = 0.02
     collision_penetration_tolerance_m: float = 0.002
     support_contact_tolerance_m: float = 0.005
+    max_state_sampling_attempts: int = 100
     enable_instance: bool = True
+    benchmark_visibility_min_pixels: int = 20
     enable_robot_proxies: bool = True
     robot_proxy_configs: List[str] = field(
         default_factory=lambda: [

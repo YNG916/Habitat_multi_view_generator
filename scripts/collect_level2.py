@@ -12,12 +12,19 @@ def main():
     parser.add_argument("--config", default="configs/collector.json")
     parser.add_argument("--root")
     parser.add_argument("--scene", default="apt_1")
-    parser.add_argument("--num-edits-per-state", type=int, default=1)
+    parser.add_argument(
+        "--num-edits",
+        "--num-edits-per-state",
+        dest="num_edits",
+        type=int,
+        default=1,
+        help="Total valid edits to generate (legacy alias: --num-edits-per-state)",
+    )
     parser.add_argument("--type", default="robot_translate", choices=["robot_translate", "robot_rotate", "object_translate", "object_place_relative", "object_remove"])
     args = parser.parse_args()
     config = load_config(args.config, output_root=args.root)
     with HabitatBackend(config, args.scene) as backend:
-        paths = collect_level2(backend, config, config.output_path, args.num_edits_per_state, args.type)
+        paths = collect_level2(backend, config, config.output_path, args.num_edits, args.type)
     print(f"Generated {len(paths)} Level 2 edits under {config.output_path}")
 
 

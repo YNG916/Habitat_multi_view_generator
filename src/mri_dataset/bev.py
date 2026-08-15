@@ -32,9 +32,21 @@ def habitat_orthographic_depth_to_metric(
     coefficient_a = 0.5 * (p22 - 1.0)
     coefficient_b = 0.5 * p32
     result = np.full(raw.shape, np.nan, dtype=np.float64)
-    valid = np.isfinite(raw) & (raw > 0.0)
-    depth_buffer = coefficient_b / raw[valid] - coefficient_a
-    result[valid] = near + depth_buffer * (far - near)
+    candidate = np.isfinite(raw) & (raw != 0.0)
+    depth_buffer = np.full(raw.shape, np.nan, dtype=np.float64)
+    with np.errstate(divide="ignore", invalid="ignore", over="ignore"):
+        depth_buffer[candidate] = coefficient_b / raw[candidate] - coefficient_a
+    metric = near + depth_buffer * (far - near)
+    epsilon = 1e-6
+    valid = (
+        candidate
+        & np.isfinite(depth_buffer)
+        & (depth_buffer >= -epsilon)
+        & (depth_buffer <= 1.0 + epsilon)
+        & (metric >= near - epsilon)
+        & (metric <= far + epsilon)
+    )
+    result[valid] = metric[valid]
     return result.astype(np.float32)
 
 
@@ -185,4 +197,10 @@ def compute_fov_overlap(mapping: BevMapping, robots, hfov_deg: float, max_range_
         difficulty = "medium"
     else:
         difficulty = "hard"
-    return {"method": "metric_bev_fov_wedges", "common_iou": common_iou, "pairwise_iou": pairwise, "category": difficulty}
+    return {
+        "method": "metric_bev_fov_wedges",
+        "category_definition": "geometric FOV overlap without occlusion",
+        "common_iou": common_iou,
+        "pairwise_iou": pairwise,
+        "category": difficulty,
+    }

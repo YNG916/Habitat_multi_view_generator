@@ -125,6 +125,15 @@ def validate_sampled_state(backend, state, config) -> None:
             if distance < config.min_inter_robot_distance_m:
                 raise ValueError(f"Robots violate separation: {distance:.3f} m")
 
+    for robot in state.robots:
+        collision = backend.entity_collision_report(state, robot.robot_id)
+        if not collision["collision_free"]:
+            raise ValueError(
+                f"{robot.robot_id} proxy collision "
+                f"{collision['rejected_contacts']}"
+            )
+
+
 
 def layout_family(scene_id: str) -> str:
     # Preserve apt_N identity while grouping common rearrangement suffixes.
@@ -163,19 +172,70 @@ def update_dataset_index(root: Path) -> None:
         dataset = json.load(handle)
     state_paths = sorted(root.glob("scenes/*/states/*/state.json"))
     edit_paths = sorted(root.glob("interventions/*/edit_*.json"))
-    dataset["states"] = [str(path.parent.relative_to(root)) for path in state_paths]
+
+    factual_states = []
+    derived_states = []
+    factual_by_family = {}
+    derived_by_family = {}
+    for path in state_paths:
+        with path.open("r", encoding="utf-8") as handle:
+            metadata = json.load(handle)
+        relative = str(path.parent.relative_to(root))
+        origin = metadata.get("state_origin")
+        if origin is None:
+            origin = "intervention_derived" if metadata.get("parent_state_id") else "factual"
+        family = layout_family(metadata.get("scene_id", path.parents[2].name))
+        if origin == "factual":
+            factual_states.append(relative)
+            factual_by_family.setdefault(family, []).append(relative)
+        elif origin == "intervention_derived":
+            derived_states.append(relative)
+            derived_by_family.setdefault(family, []).append(relative)
+        else:
+            raise ValueError(f"Unknown state_origin {origin!r} in {path}")
+
+    interventions_by_family = {}
+    for path in edit_paths:
+        with path.open("r", encoding="utf-8") as handle:
+            edit = json.load(handle)
+        family = layout_family(edit["scene_id"])
+        interventions_by_family.setdefault(family, []).append(
+            str(path.relative_to(root))
+        )
+
+    dataset["states"] = factual_states + derived_states
+    dataset["factual_states"] = factual_states
+    dataset["intervention_derived_states"] = derived_states
     dataset["interventions"] = [str(path.relative_to(root)) for path in edit_paths]
     write_json(dataset_path, dataset)
-    families = {}
-    for path in state_paths:
-        scene_id = path.parents[2].name
-        families.setdefault(layout_family(scene_id), []).append(str(path.parent.relative_to(root)))
-    # A one-scene pilot is train-only. Future family lists can be explicitly
-    # assigned without ever splitting images or variants of one family.
-    train = sorted(item for states in families.values() for item in states)
-    write_json(root / "splits/train.json", {"layout_families": sorted(families), "states": train})
-    write_json(root / "splits/val.json", {"layout_families": [], "states": []})
-    write_json(root / "splits/test.json", {"layout_families": [], "states": []})
+
+    # A one-scene pilot is train-only. Keep task inputs and intervention targets
+    # in separate fields so a Level-2 after-state is never silently consumed as
+    # a factual Level-1 training state.
+    families = sorted(set(factual_by_family) | set(derived_by_family))
+    train = {
+        "layout_families": families,
+        "states": sorted(
+            item for family in families for item in factual_by_family.get(family, [])
+        ),
+        "after_states": sorted(
+            item for family in families for item in derived_by_family.get(family, [])
+        ),
+        "interventions": sorted(
+            item
+            for family in families
+            for item in interventions_by_family.get(family, [])
+        ),
+    }
+    write_json(root / "splits/train.json", train)
+    empty_split = {
+        "layout_families": [],
+        "states": [],
+        "after_states": [],
+        "interventions": [],
+    }
+    write_json(root / "splits/val.json", empty_split)
+    write_json(root / "splits/test.json", empty_split)
 
 
 def collect_level1(backend, config, root: Path, num_states: int, deterministic_debug: bool = False) -> List[Path]:
@@ -199,13 +259,36 @@ def collect_level1(backend, config, root: Path, num_states: int, deterministic_d
         },
     )
     saved = []
+    max_attempts = int(config.max_state_sampling_attempts)
+    if max_attempts < 1:
+        raise ValueError("max_state_sampling_attempts must be at least 1")
     for index in range(1, num_states + 1):
         state_id = f"state_{index:06d}"
         state_dir = scene_dir / "states" / state_id
-        state = make_world_state(
-            backend, config, state_id, config.random_seed + index - 1,
-            deterministic_debug=deterministic_debug and index == 1,
-        )
+        use_debug_pose = deterministic_debug and index == 1
+        last_error = None
+        for attempt in range(1 if use_debug_pose else max_attempts):
+            seed = (
+                config.random_seed + index - 1
+                if attempt == 0
+                else config.random_seed + index - 1 + attempt * 1_000_003
+            )
+            try:
+                state = make_world_state(
+                    backend,
+                    config,
+                    state_id,
+                    seed,
+                    deterministic_debug=use_debug_pose,
+                )
+                break
+            except (ValueError, RuntimeError) as exc:
+                last_error = exc
+        else:
+            raise RuntimeError(
+                f"Could not sample collision-free {state_id} after "
+                f"{max_attempts} attempts: {last_error}"
+            ) from last_error
         saved.append(save_rendered_state(backend, state, state_dir))
     update_dataset_index(root)
     return saved

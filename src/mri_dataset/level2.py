@@ -22,12 +22,58 @@ def visibility_transition(before, after, target_id: str) -> dict:
         robot.robot_id: {
             "before_visible": bool(before_entity.visibility.get(robot.robot_id, {}).get("visible", False)),
             "after_visible": bool(after_entity.visibility.get(robot.robot_id, {}).get("visible", False)),
+            "before_benchmark_visible": bool(
+                before_entity.visibility.get(robot.robot_id, {}).get(
+                    "benchmark_visible", False
+                )
+            ),
+            "after_benchmark_visible": bool(
+                after_entity.visibility.get(robot.robot_id, {}).get(
+                    "benchmark_visible", False
+                )
+            ),
             "before_visible_pixel_count": before_entity.visibility.get(robot.robot_id, {}).get("visible_pixel_count"),
             "after_visible_pixel_count": after_entity.visibility.get(robot.robot_id, {}).get("visible_pixel_count"),
         }
         for robot in before.robots
     }
 
+
+def validate_robot_edit(backend, before, state, edit: Intervention) -> None:
+    if edit.type == "robot_translate":
+        validate_robot_translation(
+            before,
+            state,
+            edit,
+            backend.sim.pathfinder,
+            backend.config.floor_tolerance_m,
+            backend.config.min_inter_robot_distance_m,
+        )
+        robot = state.robot(edit.target_id)
+        nav_target = np.asarray(
+            backend.sim.pathfinder.snap_point(robot.base_position_world),
+            dtype=np.float64,
+        )
+        physical_floor_y = backend.floor_surface_y(nav_target)
+        original_floor_y = float(
+            before.robot(edit.target_id).base_position_world[1]
+        )
+        if (
+            abs(physical_floor_y - original_floor_y)
+            > backend.config.floor_tolerance_m
+        ):
+            raise ValueError("Robot target is outside the same physical floor")
+        robot.base_position_world[1] = float(physical_floor_y)
+        robot.synchronize_camera()
+    elif edit.type != "robot_rotate":
+        raise ValueError(f"Unsupported robot edit validation: {edit.type}")
+
+    collision = backend.entity_collision_report(state, edit.target_id)
+    if not collision["collision_free"]:
+        raise ValueError(
+            "Robot edit penetrates scene geometry or another controlled entity: "
+            f"{collision['rejected_contacts']}"
+        )
 
 def validate_object_edit(backend, state, target_id: str) -> None:
     obj = state.object(target_id)
@@ -37,13 +83,25 @@ def validate_object_edit(backend, state, target_id: str) -> None:
     floor_point = np.asarray(backend.sim.pathfinder.snap_point(query), dtype=np.float64)
     if (
         not np.all(np.isfinite(floor_point))
+        or np.linalg.norm(
+            floor_point[[0, 2]]
+            - np.asarray(obj.position_world, dtype=np.float64)[[0, 2]]
+        )
+        > 1e-3
         or not backend.sim.pathfinder.is_navigable(floor_point)
     ):
         raise ValueError("Controlled object target is outside the navigable interior")
     physical_floor_y = backend.floor_surface_y(floor_point)
     if abs(physical_floor_y - state.floor_y) > backend.config.floor_tolerance_m:
         raise ValueError("Controlled object target is outside the same physical floor")
-    if state.intervention.get("type") == "object_place_relative":
+    edit_type = state.intervention.get("type")
+    if edit_type == "object_translate":
+        requested = np.asarray(state.intervention["displacement_m"], dtype=np.float64)
+        if requested.shape != (3,) or abs(float(requested[1])) > 1e-9:
+            raise ValueError(
+                "Floor-supported object_translate requires displacement_m Y = 0"
+            )
+    if edit_type in {"object_translate", "object_place_relative"}:
         backend.support_object_on_floor(obj, physical_floor_y)
     if not controlled_object_collision_free(obj, state, backend.render_bev_bounds):
         raise ValueError("Controlled object edit overlaps another controlled entity or leaves visual bounds")
@@ -88,8 +146,8 @@ def collect_level2(backend, config, root: Path, num_edits: int, edit_type: str =
             raise ValueError(f"Unsupported edit type: {edit_type}")
         after = apply_intervention(before, edit, f"state_after_{edit_index:06d}")
         try:
-            if edit.type == "robot_translate":
-                validate_robot_translation(before, after, edit, backend.sim.pathfinder, config.floor_tolerance_m, config.min_inter_robot_distance_m)
+            if edit.type.startswith("robot_"):
+                validate_robot_edit(backend, before, after, edit)
             elif edit.type.startswith("object_"):
                 validate_object_edit(backend, after, edit.target_id)
         except ValueError:

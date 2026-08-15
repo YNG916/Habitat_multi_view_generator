@@ -13,6 +13,8 @@ from mri_dataset.collector import make_world_state
 from mri_dataset.config import REPO_ROOT, load_config
 from mri_dataset.habitat_backend import HabitatBackend
 
+from mri_dataset.interventions import Intervention, apply_intervention
+from mri_dataset.level2 import validate_object_edit, validate_robot_edit
 
 ASSETS_AVAILABLE = (
     (REPO_ROOT / "data/replica_cad/replicaCAD.scene_dataset_config.json").exists()
@@ -75,7 +77,8 @@ class HabitatCorrectnessIntegrationTests(unittest.TestCase):
 
     def test_bullet_rejects_controlled_object_overlapping_robot(self):
         state = make_world_state(
-            self.backend, self.config, "integration_collision", 124
+            self.backend, self.config, "integration_collision", 124,
+            deterministic_debug=True,
         )
         obj = state.objects[0]
         robot = state.robots[0]
@@ -85,6 +88,61 @@ class HabitatCorrectnessIntegrationTests(unittest.TestCase):
         report = self.backend.object_collision_report(state, obj.instance_id)
         self.assertFalse(report["collision_free"], report)
         self.assertTrue(report["rejected_contacts"], report)
+
+        robot_report = self.backend.entity_collision_report(state, robot.robot_id)
+        self.assertFalse(robot_report["collision_free"], robot_report)
+        current_object_id = self.backend.render_ids[obj.instance_id][0]
+        self.assertTrue(
+            any(
+                item["other_object_id"] == current_object_id
+                for item in robot_report["rejected_contacts"]
+            ),
+            robot_report,
+        )
+
+    def test_robot_translate_validates_path_floor_and_bullet_target(self):
+        state = make_world_state(
+            self.backend, self.config, "integration_robot_move", 155
+        )
+        edit = Intervention(
+            "robot_translate",
+            "robot_02",
+            {"reference_frame": "target_local", "forward_m": 1.0},
+        )
+        after = apply_intervention(state, edit)
+        validate_robot_edit(self.backend, state, after, edit)
+        old = np.asarray(state.robot("robot_02").base_position_world)
+        new = np.asarray(after.robot("robot_02").base_position_world)
+        self.assertAlmostEqual(float(np.linalg.norm((new - old)[[0, 2]])), 1.0)
+        nav_target = self.backend.sim.pathfinder.snap_point(new)
+        self.assertAlmostEqual(
+            float(new[1]), self.backend.floor_surface_y(nav_target), places=5
+        )
+
+    def test_object_translate_resolves_target_floor_support(self):
+        state = make_world_state(
+            self.backend, self.config, "integration_object_move", 125
+        )
+        target_id = state.objects[0].instance_id
+        edit = Intervention(
+            "object_translate",
+            target_id,
+            {"reference_frame": "world", "displacement_m": [0.5, 0.0, 0.0]},
+        )
+        after = apply_intervention(state, edit)
+        validate_object_edit(self.backend, after, target_id)
+        before_xz = np.asarray(state.object(target_id).position_world)[[0, 2]]
+        after_xz = np.asarray(after.object(target_id).position_world)[[0, 2]]
+        np.testing.assert_allclose(after_xz - before_xz, [0.5, 0.0], atol=1e-6)
+        nav_target = self.backend.sim.pathfinder.snap_point(
+            after.object(target_id).position_world
+        )
+        physical_floor_y = self.backend.floor_surface_y(nav_target)
+        self.assertAlmostEqual(
+            after.object(target_id).bbox["min_world"][1],
+            physical_floor_y,
+            places=5,
+        )
 
 
 if __name__ == "__main__":

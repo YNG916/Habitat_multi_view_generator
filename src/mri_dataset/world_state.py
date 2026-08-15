@@ -198,6 +198,9 @@ class WorldState:
             "scene_id": self.scene_id,
             "floor_y": float(self.floor_y),
             "random_seed": int(self.random_seed),
+            "state_origin": (
+                "intervention_derived" if self.parent_state_id else "factual"
+            ),
             "coordinate_convention": COORDINATE_CONVENTION,
             "bev": _lists(self.bev),
             "robots": [r.metadata(robot_paths[r.robot_id]) for r in self.robots],

@@ -240,16 +240,29 @@ class HabitatBackend:
         self.spawned_object_ids.clear()
         self.render_ids.clear()
 
-    def _spawn(self, handle: str, position, quaternion, semantic_id: int, entity_id: str):
+    def _spawn(
+        self,
+        handle: str,
+        position,
+        quaternion,
+        semantic_id: int,
+        entity_id: str,
+        support_floor_y: Optional[float] = None,
+    ):
         manager = self.sim.get_rigid_object_manager()
         handle = self.resolve_runtime_handle(handle)
         obj = manager.add_object_by_template_handle(handle)
         if obj is None:
             raise RuntimeError(f"Habitat failed to instantiate rigid template {handle}")
         obj.motion_type = self.habitat_sim.physics.MotionType.KINEMATIC
-        obj.translation = np.asarray(position, dtype=np.float32)
+        translation = np.asarray(position, dtype=np.float64).copy()
+        if support_floor_y is not None:
+            translation[1] = (
+                float(support_floor_y) - float(obj.collision_shape_aabb.min[1])
+            )
         obj.rotation = self._rigid_quaternion(quaternion)
         obj.semantic_id = int(semantic_id)
+        obj.translation = translation.astype(np.float32)
         self.spawned_object_ids.append(int(obj.object_id))
         self.render_ids[entity_id] = (int(obj.object_id), int(semantic_id))
         return obj
@@ -284,6 +297,7 @@ class HabitatBackend:
                 self._spawn(
                     handle, robot.base_position_world, yaw_to_quaternion_xyzw(robot.yaw_rad),
                     robot.proxy_semantic_id, robot.robot_id,
+                    support_floor_y=robot.base_position_world[1],
                 )
         for obj_state in state.objects:
             if obj_state.active:
@@ -370,20 +384,39 @@ class HabitatBackend:
         finally:
             manager.remove_object_by_id(rigid.object_id)
 
-    def object_collision_report(self, state: WorldState, target_id: str) -> dict:
-        """Use Bullet contacts to reject penetration into the static scene/entities."""
+    def entity_collision_report(self, state: WorldState, target_id: str) -> dict:
+        """Use Bullet contacts to reject entity penetration.
+
+        OBJECT_ID segmentation and collision validation share the same spawned
+        rigid entity. The query entity is temporarily dynamic because Bullet
+        does not report kinematic-vs-kinematic overlaps; simulation time is
+        never advanced.
+        """
         self.apply_world_state(state)
         self.refresh_object_bboxes(state)
+        if target_id not in self.render_ids:
+            raise KeyError(f"Controlled entity is not active/spawned: {target_id}")
         rigid_id = self.render_ids[target_id][0]
         rigid = self.sim.get_rigid_object_manager().get_object_by_id(rigid_id)
-        # Bullet does not report KINEMATIC-vs-KINEMATIC overlap. Temporarily
-        # make only the query object dynamic, run discrete detection, and do
-        # not advance simulation time.
+        if rigid is None:
+            raise RuntimeError(f"Spawned rigid entity disappeared: {target_id}")
+
+        try:
+            robot = state.robot(target_id)
+            quaternion = yaw_to_quaternion_xyzw(robot.yaw_rad)
+        except KeyError:
+            obj = state.object(target_id)
+            quaternion = obj.quaternion_world_xyzw
+        position = np.asarray(rigid.translation, dtype=np.float64)
+        bbox = aabb_dict(
+            rigid.collision_shape_aabb,
+            transform_matrix(position, quaternion),
+        )
+        bbox_bottom = float(bbox["min_world"][1])
+
         rigid.motion_type = self.habitat_sim.physics.MotionType.DYNAMIC
         rigid.linear_velocity = np.zeros(3, dtype=np.float32)
         rigid.angular_velocity = np.zeros(3, dtype=np.float32)
-        target = state.object(target_id)
-        bbox_bottom = float(target.bbox["min_world"][1])
         penetration_tolerance = float(self.config.collision_penetration_tolerance_m)
         support_tolerance = float(self.config.support_contact_tolerance_m)
         self.sim.perform_discrete_collision_detection()
@@ -418,10 +451,18 @@ class HabitatBackend:
                 })
         return {
             "collision_free": not rejected,
+            "target_entity_id": target_id,
             "target_object_id": int(rigid_id),
             "contacts_checked": contacts_checked,
             "rejected_contacts": rejected,
         }
+
+    def entity_collision_free(self, state: WorldState, target_id: str) -> bool:
+        return bool(self.entity_collision_report(state, target_id)["collision_free"])
+
+    def object_collision_report(self, state: WorldState, target_id: str) -> dict:
+        state.object(target_id)
+        return self.entity_collision_report(state, target_id)
 
     def object_collision_free(self, state: WorldState, target_id: str) -> bool:
         return bool(self.object_collision_report(state, target_id)["collision_free"])
@@ -484,8 +525,17 @@ class HabitatBackend:
                 count = 0
                 if instance is not None and render_object_id is not None:
                     count = int((instance == render_object_id).sum())
+                geometrically_visible = bool(count > 0)
+                benchmark_visible = bool(
+                    count >= int(self.config.benchmark_visibility_min_pixels)
+                )
                 entity.visibility[observer_id] = {
-                    "visible": bool(count > 0),
+                    "visible": geometrically_visible,
+                    "geometrically_visible": geometrically_visible,
+                    "benchmark_visible": benchmark_visible,
+                    "benchmark_min_pixels": int(
+                        self.config.benchmark_visibility_min_pixels
+                    ),
                     "visible_pixel_count": count,
                     "method": "object_id_sensor" if instance is not None else "unavailable",
                 }

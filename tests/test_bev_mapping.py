@@ -43,6 +43,28 @@ class BevMappingTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             habitat_orthographic_depth_to_metric(np.ones(1), 1.0, 1.0)
 
+    def test_orthographic_conversion_accepts_both_sides_of_singularity(self):
+        near, far = 0.02, 10.0
+        metric = np.array([1.0, 2.0, 5.0, 8.0], dtype=np.float64)
+        depth_buffer = (metric - near) / (far - near)
+        p22 = -2.0 / (far - near)
+        p32 = -(far + near) / (far - near)
+        coefficient_a = 0.5 * (p22 - 1.0)
+        coefficient_b = 0.5 * p32
+        pseudo_depth = coefficient_b / (depth_buffer + coefficient_a)
+
+        self.assertGreater(pseudo_depth[2], 0.0)
+        self.assertLess(pseudo_depth[3], 0.0)
+        actual = habitat_orthographic_depth_to_metric(pseudo_depth, near, far)
+        np.testing.assert_allclose(actual, metric, atol=1e-5)
+
+        outside_metric = np.array([-1.0, 12.0])
+        outside_buffer = (outside_metric - near) / (far - near)
+        outside_raw = coefficient_b / (outside_buffer + coefficient_a)
+        self.assertTrue(
+            np.isnan(habitat_orthographic_depth_to_metric(outside_raw, near, far)).all()
+        )
+
 
     def test_navmesh_occupancy_is_registered_into_larger_visual_bounds(self):
         class FakePathfinder:

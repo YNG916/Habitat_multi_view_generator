@@ -2,7 +2,7 @@ import unittest
 
 import numpy as np
 
-from mri_dataset.interventions import Intervention, apply_intervention
+from mri_dataset.interventions import Intervention, apply_intervention, canonical_instruction
 from mri_dataset.world_state import ObjectState, RobotState, WorldState
 
 
@@ -34,6 +34,17 @@ class ObjectInterventionTests(unittest.TestCase):
         after = apply_intervention(self.state, Intervention("object_remove", "object_001", {}))
         self.assertFalse(after.object("object_001").active)
         self.assertTrue(self.state.object("object_001").active)
+
+    def test_world_translation_instruction_is_information_complete(self):
+        edit = Intervention(
+            "object_translate",
+            "object_001",
+            {"reference_frame": "world", "displacement_m": [0.5, 0.0, 0.0]},
+        )
+        self.assertEqual(
+            canonical_instruction(edit, self.state),
+            "Move the book 0.5 meters along the world +X direction.",
+        )
 
 
 if __name__ == "__main__":

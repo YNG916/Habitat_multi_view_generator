@@ -164,6 +164,7 @@ BEV：
     collision_penetration_tolerance_m = 0.002
     support_contact_tolerance_m = 0.005
 
+    max_state_sampling_attempts = 100
 在 apt_1 中，默认视觉 BEV 实测为 1163 x 2091；最终尺寸由 rendered scene
 AABB 和整数分辨率决定。NavMesh bounds 与视觉 bounds 分开写入元数据。
 
@@ -172,6 +173,7 @@ AABB 和整数分辨率决定。NavMesh bounds 与视觉 bounds 分开写入元�
     enable_robot_proxies = true
 
 机器人保留 semantic ID：
+    benchmark_visibility_min_pixels = 20
     robot_01 = 1001
     robot_02 = 1002
     robot_03 = 1003
@@ -428,10 +430,11 @@ controlled_object_collision_free(...)
     - 是否离机器人过近
     - 是否与其他受控对象 AABB 重叠
 
-随后 HabitatBackend.object_collision_report(...) 会将目标物体临时设为
+随后 HabitatBackend.entity_collision_report(...) 会将目标实体临时设为
 dynamic，只执行 Bullet 离散碰撞检测而不推进时间，从而检查墙、沙发、
-桌子、柜子、静态家具、机器人 proxy 和其他刚体。仅容忍阈值内的垂直
-地板支撑接触。
+桌子、柜子、静态家具、机器人 proxy、受控物体和其他刚体。机器人和物体
+使用同一套检查；object_collision_report(...) 是保留类型检查的兼容包装。
+仅容忍阈值内的垂直地板支撑接触。
 
 
 八、BEV
@@ -467,8 +470,11 @@ meters_per_pixel_x / meters_per_pixel_z
 habitat_orthographic_depth_to_metric(...)
     Habitat-Sim 0.3.3 在读回前会执行通用 depth unprojection，但该通用
     过程对 orthographic projection 返回 reciprocal pseudo-depth，而不是
-    线性米制距离。本函数使用 near/far 线性化；真实 Habitat integration
-    test 用 Bullet downward ray 作为非循环 oracle 验证结果。
+    线性米制距离。本函数反解 depth buffer 后按 near/far 线性化；合法性
+    由 finite、raw != 0、depth-buffer ∈ [0,1] 和 metric ∈ [near,far]
+    共同决定，不能用 raw > 0，因为约 6.01 m 奇点之后的合法值为负。
+    synthetic test 覆盖 1/2/5/8 m，真实 Habitat integration test 使用
+    Bullet downward ray 作为非循环 oracle。
 
 occupancy_from_pathfinder(...)
     调用 Habitat 的 C++ PathFinder.get_topdown_view() 一次生成 NavMesh
@@ -572,13 +578,17 @@ floor_surface_y(...)
     NavMesh polygon Y。
 
 support_object_on_floor(...)
-    在 Level-2 相对放置后重新读取目标模板 collision AABB，并按目标 XZ
-    下方真实地板 Y 重建物体支撑高度，避免浮空或陷地。
+    在 Level-2 相对放置或 object_translate 后重新读取目标模板 collision
+    AABB，并按目标 XZ 下方真实地板 Y 重建物体支撑高度，避免浮空或陷地。
 
-object_collision_report(...)
-    应用完整 WorldState 后执行 Bullet 离散接触检测，返回碰撞对象、
-    穿透深度和接触位置。目标临时设为 dynamic，以覆盖 kinematic 与
-    kinematic/static 的重叠。
+entity_collision_report(...)
+    应用完整 WorldState 后执行 Bullet 离散接触检测，返回碰撞对象、穿透
+    深度和接触位置。支持 robot proxy 和 controlled object。目标临时设为
+    dynamic，以覆盖 kinematic 与 kinematic/static 的重叠。
+
+机器人 proxy 生成时会读取 collision AABB 的 local min Y，将真实底面对齐
+RobotState 的 physical floor base；不能直接把 mesh 原点放在地板上，否则
+轮子/侧刷会陷入地面。
 
 render(state)
 -------------
@@ -652,6 +662,9 @@ initialize_dataset_root(...)
 
 update_dataset_index(...)
     扫描所有 state.json 和 edit JSON，更新 dataset.json 和 split。
+    显式分开 factual_states、intervention_derived_states 和 interventions。
+    train split 中 states 只包含 factual Level-1；after_states 与
+    interventions 使用独立字段，避免 Level-2 target 泄漏成 Level-1 输入。
 
 当前限制：
     所有 layout family 暂时都写入 train。
@@ -661,8 +674,10 @@ update_dataset_index(...)
 collect_level1(...)
     对每个状态：
     - state ID = state_000001 等
-    - seed = random_seed + index - 1
+    - 首选 seed = random_seed + index - 1
     - 构造 WorldState
+    - 对每个 robot proxy 做 Bullet collision 检查
+    - 无效布局按确定性备用 seed 重采样，默认最多 100 次
     - 渲染并原子保存
     - 更新数据集索引
 
@@ -755,7 +770,8 @@ from_dict()
     从 JSON 构造干预并检查必需字段。
 
 canonical_instruction(...)
-    生成固定英文自然语言指令。
+    生成固定英文自然语言指令。object_translate 指令显式包含位移距离、
+    方向和 reference frame，与 structured intervention 信息等价。
 
 支持类型
 --------
@@ -791,10 +807,14 @@ apply_intervention(...)
 
 validate_robot_translation(...)
     严格检查：
-    - 实际位移等于请求位移，绝对误差 <= 1e-6
-    - 目标仍在 navmesh
-    - 没有换楼层
+    - XZ 水平位移等于请求距离，绝对误差 <= 1e-6
+    - 位移方向等于 target-local forward
+    - 目标仍在 navmesh，snap 偏差 <= 1 mm
+    - try_step_no_sliding 能完成完整直线路径
+    - NavMesh 与 physical floor 均没有换楼层
+    - 目标 Y 重新解析为 physical floor
     - 不违反机器人最小距离
+    - after-state robot proxy 通过 Bullet collision
 
 无效精确目标会被拒绝，不会缩短距离或 snap 到附近点。
 
@@ -806,14 +826,15 @@ validate_robot_translation(...)
 
 visibility_transition(...)
     统计干预目标在每个机器人视角中的：
-    - before visible
-    - after visible
-    - before pixel count
-    - after pixel count
+    - before/after geometrically visible（OBJECT_ID 像素数 > 0）
+    - before/after benchmark visible（默认至少 20 像素）
+    - before/after pixel count
 
 validate_object_edit(...)
     检查 active 对象：
-    - 地面投影位于导航内部
+    - 目标 XZ 本身位于导航内部，禁止 snap 偷改目标
+    - object_translate 第一版要求请求的 Y 位移为 0
+    - translate 和 relative placement 都重新支撑到目标 physical floor
     - 不碰撞
     - 不越界
 
@@ -840,7 +861,7 @@ collect_level2(...)
         移除第一个对象。
 
 注意：
-    CLI 参数名 --num-edits-per-state 当前实际表示本次命令总 edit 数量，
+    CLI 参数名 --num-edits 当前实际表示本次命令总 edit 数量，
     不是每个状态的 edit 数量。
 
 
@@ -875,28 +896,28 @@ validate_state_dir(...)
 
 BEV 机器人注册
 --------------
-旧实现使用固定 3 px 阈值，在 2K BEV 下只有约 1.9 cm，不合理。
+旧的 0.35 m 最近-footprint 像素容差过宽，在 production 可放过约
+56 px 的注册错误，不能证明精确 metric grounding。
 
 当前实现：
-    nearest_instance_distance_m(...)
-        将实例像素与机器人底盘中心的像素差乘以 X/Z 米/像素，得到真实距离。
+    instance_centroid_registration(...)
+        比较机器人 OBJECT_ID mask 质心与已知 world base 投影。
+        容差 = max(3 pixels, 0.02 m)。
 
-    ROBOT_PROXY_REGISTRATION_TOLERANCE_M = 0.35
-
-该容差覆盖约 0.29 m 半径的扫地机器人 footprint 和少量栅格误差。
-机器人在桌子等家具下被俯视相机部分遮挡时，最近可见实例像素仍应位于
-真实 footprint 范围内。
-
-如果 proxy 完全不可见，则验证 annotated BEV 中的显式中心标记。
+apt_1 真实 pilot 实测三台机器人的质心误差约 1.1–4.3 mm。若 proxy 在
+BEV OBJECT_ID 中完全不可见则直接报错，不再用 annotated marker 代替
+传感器注册验证。
 
 validate_dataset(...)
     1. 扫描全部状态。
     2. 每个 scene 只创建一个 HabitatBackend。
     3. 使用真实 PathFinder 验证。
-    4. 重新加载每个 WorldState，对 active 受控物体执行 Bullet 碰撞回验。
-    5. 检查 Level-2 robot_translate 的精确位移。
-    6. 检查 Level-2 object_translate 的精确位移。
-    7. 返回：
+    4. 对 active 物体回验 Bullet collision 和目标 XZ physical support。
+    5. 对每台 robot proxy 回验 Bullet collision。
+    6. 检查 robot_translate 的水平距离、方向、无滑动路径和目标地面 Y。
+    7. 检查 object_translate 的水平位移与 Y=0 请求语义。
+    8. 检查 canonical instruction 与 structured intervention 信息等价。
+    9. 返回：
        root
        states_checked
        errors
@@ -986,8 +1007,11 @@ scripts/collect_level2.py
     --config
     --root
     --scene
-    --num-edits-per-state
+    --num-edits
+    --num-edits-per-state（兼容别名）
     --type
+
+    --num-edits 表示本次命令要求生成的有效 edit 总数，不是每个 state 数。
 
     type 可选：
     robot_translate
@@ -1122,7 +1146,9 @@ dataset.json：
     - generator
     - 完整 config
     - split_unit
-    - states 相对路径
+    - states 全部状态相对路径
+    - factual_states
+    - intervention_derived_states
     - interventions 相对路径
 
 scene.json：
@@ -1134,6 +1160,7 @@ scene.json：
 state.json：
     - schema_version
     - state_id
+    - state_origin = factual 或 intervention_derived
     - scene_id
     - floor_y
     - random_seed
@@ -1224,7 +1251,7 @@ conda run -n habitat python scripts/collect_level2.py \
   --config configs/collector.json \
   --root outputs/uhd_full_dataset \
   --scene apt_1 \
-  --num-edits-per-state 100 \
+  --num-edits 100 \
   --type robot_translate
 
 机器人旋转：
@@ -1233,7 +1260,7 @@ conda run -n habitat python scripts/collect_level2.py \
   --config configs/collector.json \
   --root outputs/uhd_full_dataset \
   --scene apt_1 \
-  --num-edits-per-state 100 \
+  --num-edits 100 \
   --type robot_rotate
 
 物体平移：
@@ -1242,7 +1269,7 @@ conda run -n habitat python scripts/collect_level2.py \
   --config configs/collector.json \
   --root outputs/uhd_full_dataset \
   --scene apt_1 \
-  --num-edits-per-state 100 \
+  --num-edits 100 \
   --type object_translate
 
 物体相对放置：
@@ -1251,7 +1278,7 @@ conda run -n habitat python scripts/collect_level2.py \
   --config configs/collector.json \
   --root outputs/uhd_full_dataset \
   --scene apt_1 \
-  --num-edits-per-state 100 \
+  --num-edits 100 \
   --type object_place_relative
 
 移除物体：
@@ -1260,7 +1287,7 @@ conda run -n habitat python scripts/collect_level2.py \
   --config configs/collector.json \
   --root outputs/uhd_full_dataset \
   --scene apt_1 \
-  --num-edits-per-state 100 \
+  --num-edits 100 \
   --type object_remove
 
 9. 最终验证
@@ -1318,7 +1345,8 @@ num-states 表示每个场景生成的状态数。
 2. train/val/test 自动划分尚未完成，当前全部进入 train。
 3. 扫地机器人本体约 0.18 m，相机高度 0.4–1.4 m；没有可变伸缩杆。
 4. Level-2 CLI 的干预距离和目标是代码内预设，不是独立命令行参数。
-5. --num-edits-per-state 当前表示本次命令总 edit 数。
+5. --num-edits 表示本次命令总 edit 数；旧 --num-edits-per-state 只是兼容
+   别名，不表示“每个 state”。
 6. Level-1 不能在同一个 root 上覆盖或直接续跑已有 state ID。
 7. 正式默认配置为 2048；768 pilot 配置仅用于快速验证。高清数据会产生
    很大的数据体积。
@@ -1361,20 +1389,70 @@ Contact sheets：
     10 张成功生成。
 
 测试：
-    15 / 15 通过，其中 2 个是真实 Habitat integration tests：
+    23 / 23 通过，其中 4 个是真实 Habitat integration tests：
     - orthographic depth/height + Bullet downward ray + OBJECT_ID
-    - controlled object 与 robot proxy 重叠的 Bullet collision reject
+    - controlled object 与 robot proxy 双向 Bullet collision reject
+    - robot_translate 无滑动路径 + target floor + Bullet target
+    - object_translate target floor support
 
-临时端到端 Pilot：
-    2 条 Level-1 + 1 条 object_place_relative Level-2 after-state
-    states_checked = 3
+本轮临时端到端 smoke test（自动清理）：
+    1 条 factual Level-1 + 1 条 robot_translate Level-2 after-state
+    states_checked = 2
     errors = {}
     passed = true
+    train.states 仅 factual
+    train.after_states 仅 intervention-derived
+    train.interventions 仅 edit JSON
 
-BEV 修复：
-    旧的固定 3 px 阈值已替换为 0.35 m 米制 footprint 容差。
-    该验证与图像分辨率无关。
+BEV 注册修复：
+    旧 0.35 m 最近像素容差已替换为 OBJECT_ID mask 质心。
+    阈值为 max(3 px, 0.02 m)，apt_1 实测约 1.1–4.3 mm。
 
 Habitat 配置日志：
     未安装的可选 Fetch URDF 和缺失 v3_sc4 navmesh 会在运行时过滤。
     原始 ReplicaCAD 配置不会被修改。
+
+二十六、新 review 的判断与处理
+============================================================
+
+review 中关于 orthographic depth 的纠正成立：
+    保持 Habitat-Sim 0.3.3 专用 inverse + linearization。
+    不能改回 direct depth。仅修复 raw 符号有效性和跨奇点测试。
+
+本轮已经实现：
+    P0-1  orthographic pseudo-depth 跨奇点有效性。
+    P0-2  robot_translate 直线 try_step_no_sliding 路径。
+    P0-3  robot after-state 与 controlled object/static scene 的 Bullet collision。
+    P0-4  forward_m 定义为 XZ 水平距离，目标 Y 来自 physical floor。
+    P0-5  object_translate 在目标 XZ 重新 support。
+    P0-6  canonical instruction 包含方向、距离和 reference frame。
+    P0-7  BEV OBJECT_ID mask 质心注册，阈值 max(3 px, 2 cm)。
+
+同时发现并修复 review 未完全覆盖的问题：
+    Level-1 初始 robot proxy 也可能与家具相交。现在每个 before-state 都做
+    Bullet 检查并确定性重采样。proxy mesh 原点不等于碰撞底面，spawn 时
+    使用 local collision AABB min Y 对齐 physical floor。
+
+低风险 P1 已实现：
+    - geometrically_visible 与 benchmark_visible（默认 >= 20 px）双标签。
+    - overlap metadata 明确为 geometric FOV overlap without occlusion。
+    - state_origin 显式区分 factual / intervention_derived。
+    - split 中 states / after_states / interventions 分字段，避免 target leakage。
+    - --num-edits 为正式名称，旧名称只作兼容别名。
+
+本轮没有擅自冻结的 P1：
+    1. 多高度真实标定：
+       随机家具 render mesh 与 Bullet collision mesh 并不完全一致。实测
+       非地面随机 ray 只有约 75% 在 2 cm 内，最大差异可超过 1 m，因此
+       不能把家具随机 ray 设为 converter 硬门槛。应另建 0.2/0.5/1.0/1.5 m
+       共用 render/collision 几何的 calibration slabs。
+    2. 离轴相机 integration calibration：
+       需要已知 3D marker asset，再冻结 pixel-center convention。
+    3. 大规模随机 intervention sampler 与 Train/OOD 距离集合：
+       需要论文 benchmark 协议，当前 CLI preset 仍是 deterministic debug
+       distribution。
+    4. 多 scene cutaway：
+       继续要求逐 scene BEV height override 和 sanity check。
+    5. 可变相机桅杆：
+       属于 embodiment/presentation 资产改造，不影响当前 invisible camera
+       rig 的 metric GT，但论文若强调真实机器人外形应单独实现。
