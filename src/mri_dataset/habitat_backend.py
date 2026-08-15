@@ -85,6 +85,7 @@ class HabitatBackend:
         self.render_ids: Dict[str, Tuple[int, int]] = {}
         self._occupancy_cache: Dict[float, np.ndarray] = {}
         self._load_proxy_templates()
+        self._validate_proxy_dimensions()
         self.controlled_handles = self._resolve_controlled_handles()
 
     def _sensor(self, uuid, sensor_type, subtype, resolution, near, far):
@@ -205,6 +206,43 @@ class HabitatBackend:
             loaded = manager.load_configs(directory)
             if not loaded and self.config.enable_robot_proxies:
                 raise RuntimeError(f"No robot proxy configs loaded from {directory}")
+
+    def _validate_proxy_dimensions(self) -> None:
+        """Reject a stale proxy export before collecting any samples."""
+        if not self.config.enable_robot_proxies:
+            return
+        manager = self.sim.get_rigid_object_manager()
+        expected_diameter = float(self.config.robot_body_diameter_m)
+        expected_height = float(self.config.robot_body_height_m)
+        for config_path in self.config.robot_proxy_configs:
+            handle = self.resolve_proxy_handle(config_path)
+            rigid = manager.add_object_by_template_handle(handle)
+            if rigid is None:
+                raise RuntimeError(f"Could not instantiate robot proxy {handle}")
+            try:
+                bounds = rigid.root_scene_node.cumulative_bb
+                minimum = np.asarray(bounds.min, dtype=np.float64)
+                extent = np.asarray(bounds.max, dtype=np.float64) - minimum
+                diameter = max(float(extent[0]), float(extent[2]))
+                height = float(extent[1])
+                if abs(float(minimum[1])) > 1e-4:
+                    raise ValueError(
+                        f"Robot proxy {handle} does not touch local Y=0: "
+                        f"min_y={minimum[1]:.6f} m"
+                    )
+                if abs(diameter - expected_diameter) > 0.002:
+                    raise ValueError(
+                        f"Robot proxy {handle} diameter is {diameter:.6f} m, "
+                        f"expected {expected_diameter:.6f} m; rerun "
+                        "scripts/prepare_robot_proxy_assets.py"
+                    )
+                if abs(height - expected_height) > 0.002:
+                    raise ValueError(
+                        f"Robot proxy {handle} height is {height:.6f} m, "
+                        f"expected {expected_height:.6f} m"
+                    )
+            finally:
+                manager.remove_object_by_id(rigid.object_id)
 
     def _resolve_controlled_handles(self) -> Dict[str, str]:
         manager = self.sim.get_object_template_manager()

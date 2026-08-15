@@ -29,6 +29,9 @@ def load_world_state(state_dir: Path) -> WorldState:
                 yaw_rad=item["yaw_rad"],
                 camera_height_m=item["camera_height_m"],
                 camera=camera,
+                camera_forward_offset_m=item.get(
+                    "camera_forward_offset_m", 0.0
+                ),
                 proxy_asset_handle=item.get("proxy_asset_handle", ""),
                 proxy_semantic_id=item.get("proxy_semantic_id", 0),
                 visibility=item.get("visibility", {}),

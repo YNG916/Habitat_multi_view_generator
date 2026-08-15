@@ -13,7 +13,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 @dataclass
 class CollectorConfig:
     dataset_version: str = "1.0.0"
-    protocol_version: str = "mri-formal-v1.2"
+    protocol_version: str = "mri-formal-v1.4"
     scene_dataset_config: str = "data/replica_cad/replicaCAD.scene_dataset_config.json"
     scenes: List[str] = field(default_factory=lambda: ["apt_1"])
     navmesh_root: str = "data/replica_cad/navmeshes"
@@ -28,8 +28,11 @@ class CollectorConfig:
     far: float = 20.0
     pinhole_validation_min_samples: int = 3
     pinhole_validation_median_error_m: float = 0.03
-    camera_height_min_m: float = 0.4
-    camera_height_max_m: float = 1.4
+    robot_body_diameter_m: float = 0.46
+    robot_body_height_m: float = 0.107
+    camera_height_min_m: float = 0.15
+    camera_height_max_m: float = 0.15
+    robot_camera_forward_offset_m: float = 0.235
     min_obstacle_distance_m: float = 0.55
     min_inter_robot_distance_m: float = 0.9
     local_sampling_radius_m: float = 3.5
@@ -249,6 +252,32 @@ class CollectorConfig:
                 )
         if self.width < 2 or self.height < 2 or self.bev_meters_per_pixel <= 0:
             raise ValueError("Image sizes and BEV meters-per-pixel must be positive")
+        if self.camera_height_min_m <= 0 or (
+            self.camera_height_min_m > self.camera_height_max_m
+        ):
+            raise ValueError("Robot camera height range must be positive and ordered")
+        if self.robot_body_diameter_m <= 0 or self.robot_body_height_m <= 0:
+            raise ValueError("Robot body dimensions must be positive")
+        if self.camera_height_min_m <= self.robot_body_height_m:
+            raise ValueError("Robot camera must be above the configured body height")
+        minimum_front_offset = 0.5 * self.robot_body_diameter_m
+        if not minimum_front_offset <= self.robot_camera_forward_offset_m <= (
+            minimum_front_offset + 0.05
+        ):
+            raise ValueError(
+                "robot_camera_forward_offset_m must place the camera at most "
+                "0.05 m beyond the configured front edge"
+            )
+        if self.min_obstacle_distance_m < minimum_front_offset + 0.10:
+            raise ValueError("min_obstacle_distance_m is unsafe for the robot body")
+        if self.min_inter_robot_distance_m < self.robot_body_diameter_m + 0.10:
+            raise ValueError("min_inter_robot_distance_m is unsafe for the robot bodies")
+        if self.support_contact_tolerance_m <= 0:
+            raise ValueError("support_contact_tolerance_m must be positive")
+        if self.robot_floor_collision_tolerance_m < self.support_contact_tolerance_m:
+            raise ValueError(
+                "robot_floor_collision_tolerance_m must be at least support_contact_tolerance_m"
+            )
         if not self.enable_instance:
             raise ValueError("Formal protocol requires OBJECT_ID instance observations")
         required_semantics = {"robot", *self.controlled_object_whitelist}

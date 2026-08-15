@@ -66,6 +66,7 @@ def validate_state_dir(
     minimum_separation_m: float = 0.0,
     height_max_error_m: float = DEFAULT_HEIGHT_VALIDATION_MAX_ERROR_M,
     support_contact_tolerance_m: float = DEFAULT_SUPPORT_CONTACT_TOLERANCE_M,
+    expected_camera_forward_offset_m: Optional[float] = None,
 ) -> List[str]:
     state_dir = Path(state_dir)
     errors: List[str] = []
@@ -112,6 +113,19 @@ def validate_state_dir(
         camera = np.asarray(robot["camera_position_world"], dtype=np.float64)
         if not math.isclose(camera[1] - base[1], robot["camera_height_m"], abs_tol=tolerance):
             errors.append(f"{robot_id}: camera height mismatch")
+        camera_offset = float(robot.get("camera_forward_offset_m", 0.0))
+        if expected_camera_forward_offset_m is not None and not math.isclose(
+            camera_offset, expected_camera_forward_offset_m, abs_tol=tolerance
+        ):
+            errors.append(f"{robot_id}: camera forward offset/config mismatch")
+        forward = np.asarray(robot["forward_world"], dtype=np.float64)
+        expected_camera = (
+            base
+            + np.array([0.0, float(robot["camera_height_m"]), 0.0])
+            + forward * camera_offset
+        )
+        if not np.allclose(camera, expected_camera, atol=tolerance):
+            errors.append(f"{robot_id}: camera mount position mismatch")
         proxy_match = re.search(
             r"_h(\d{3})\.object_config\.json$",
             robot.get("proxy_asset_handle", ""),
@@ -393,6 +407,10 @@ def validate_dataset(root: Path, config=None) -> Dict[str, object]:
                 support_contact_tolerance_m=(
                     config.support_contact_tolerance_m
                     if config else DEFAULT_SUPPORT_CONTACT_TOLERANCE_M
+                ),
+                expected_camera_forward_offset_m=(
+                    config.robot_camera_forward_offset_m
+                    if config else None
                 ),
             )
             if config is not None:

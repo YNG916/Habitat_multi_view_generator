@@ -12,6 +12,7 @@ except ImportError:
 from mri_dataset.calibration import validate_multilevel_orthographic_depth
 from mri_dataset.collector import make_world_state
 from mri_dataset.config import REPO_ROOT, load_config
+from mri_dataset.coordinates import forward_from_quaternion
 from mri_dataset.habitat_backend import HabitatBackend
 
 from mri_dataset.interventions import Intervention, apply_intervention
@@ -60,9 +61,25 @@ class HabitatCorrectnessIntegrationTests(unittest.TestCase):
             self.backend, self.config, "integration_depth", 123, deterministic_debug=True
         )
         outputs = self.backend.render(state)
-        for robot in state.robots:
-            expected_tag = f"_h{round(100 * robot.camera_height_m):03d}"
-            self.assertIn(expected_tag, robot.proxy_asset_handle)
+        expected_assets = [
+            "robot_red.object_config.json",
+            "robot_green.object_config.json",
+            "robot_blue.object_config.json",
+        ]
+        for robot, expected_asset in zip(state.robots, expected_assets):
+            self.assertTrue(robot.proxy_asset_handle.endswith(expected_asset))
+            self.assertAlmostEqual(robot.camera_forward_offset_m, 0.235, places=8)
+            expected_camera = (
+                np.asarray(robot.base_position_world)
+                + np.array([0.0, 0.15, 0.0])
+                + forward_from_quaternion(
+                    robot.camera.quaternion_world_xyzw
+                ) * 0.235
+            )
+            np.testing.assert_allclose(
+                robot.camera.position_world, expected_camera, atol=1e-8
+            )
+            self.assertAlmostEqual(robot.camera_height_m, 0.15, places=8)
         for robot in state.robots:
             support = self.backend.robot_support_report(state, robot.robot_id)
             self.assertAlmostEqual(support["proxy_local_min_y_m"], 0.0, places=5)

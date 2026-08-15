@@ -29,7 +29,6 @@ APT1_DEBUG_POSITIONS = np.array(
     dtype=np.float64,
 )
 APT1_DEBUG_YAWS = [0.0, np.pi / 2.0, -np.pi / 2.0]
-APT1_DEBUG_HEIGHTS = [0.6, 0.9, 1.2]
 
 
 def make_world_state(backend, config, state_id: str, seed: int, deterministic_debug: bool = False) -> WorldState:
@@ -40,7 +39,7 @@ def make_world_state(backend, config, state_id: str, seed: int, deterministic_de
             raise ValueError("The preserved deterministic debug pose is defined for apt_1 with 3 robots")
         positions = [point.copy() for point in APT1_DEBUG_POSITIONS]
         yaws = APT1_DEBUG_YAWS
-        heights = APT1_DEBUG_HEIGHTS
+        heights = None
     else:
         positions = sample_robot_positions(
             backend.sim.pathfinder, rng, config.num_robots,

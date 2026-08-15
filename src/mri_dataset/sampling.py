@@ -127,6 +127,7 @@ def build_robot_states(positions, yaws, rng, config, deterministic_heights=None)
             RobotState.create(
                 f"robot_{index:02d}", position.tolist(), yaw, float(height),
                 config.width, config.height, config.hfov_deg, config.near, config.far,
+                camera_forward_offset_m=config.robot_camera_forward_offset_m,
                 proxy_asset_handle=proxy, proxy_semantic_id=1000 + index,
             )
         )

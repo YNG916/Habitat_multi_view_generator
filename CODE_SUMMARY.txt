@@ -96,7 +96,7 @@ scripts/
     list_object_templates.py
     make_contact_sheet.py
     validate_dataset.py
-    generate_robot_proxy_meshes.py
+    prepare_robot_proxy_assets.py
 
 tests/
     test_coordinates.py
@@ -950,41 +950,39 @@ before_after_contact_sheet(...)
 十七、机器人 mesh
 ============================================================
 
-文件：scripts/generate_robot_proxy_meshes.py
+文件：
+    scripts/prepare_robot_proxy_assets.py
+    assets/robot_proxies/ATTRIBUTION.md
+    assets/robot_proxies/source/robot_vacuum_original.fbx
 
-作用：
-    程序化生成红、绿、蓝三套写实低模扫地机器人 OBJ、MTL 和
-    object_config.json。
+当前实现不再程序化拼装机器人几何。源资产是 Moryak 的成品扫地机器人模型
+“Robot vacuum cleaner low poly”，许可证为 CC BY 4.0。仓库保留源 FBX、
+原始 albedo、作者链接、许可证、SHA-256 和修改记录。
 
-模型特征：
-    - 32 边圆形机身
-    - 分层外壳和顶盖
-    - 橡胶防撞圈
-    - 两个驱动轮
-    - 三臂侧刷
-    - 顶部 lidar
-    - 状态按钮
-    - 前后传感器窗口
-    - 无贴图依赖
-    - kinematic rigid object
-    - bounding-box collision
+prepare_robot_proxy_assets.py 只做资产规范化：
+    1. 用 Habitat 自带 Magnum/Assimp 读取作者 FBX。
+    2. 应用 FBX scene transform，将模型统一到 Habitat Y-up。
+    3. 统一缩放到最大水平直径 0.46 m。
+    4. X/Z 居中，把视觉最低点精确平移到 local Y=0。
+    5. 保留同一套顶点、UV、法线和三角面索引。
+    6. 只生成红、绿、蓝三张 albedo 区分 agent。
+    7. 输出三份 OBJ/MTL/object_config；三份 OBJ 几何完全相同。
+    8. 使用 mesh collision、COM=[0,0,0] 和 0.001 m margin。
 
-材质：
-    body
-    deck
-    trim
-    sensor
-    wheel
-    brush
-    status
+规范化后实测：
+    vertices = 1470
+    triangles = 1234
+    dimensions XYZ = 0.4597 x 0.1066 x 0.4600 m
+    visual local min Y = 0
 
-模型大约：
-    直径约 0.60 m
-    高度约 0.18 m
-    每个 OBJ 约 515 行
+相机属于同一物理 embodiment：
+    camera_height_m = 0.15
+    camera_forward_offset_m = 0.235
+    安装在机器人局部 forward 的前保险杠位置。
+    不再存在可变高杆和高度变体，也不会在第一视角看到自己的机身。
 
-重新生成：
-    conda run -n habitat python scripts/generate_robot_proxy_meshes.py
+重新准备：
+    conda run -n habitat python scripts/prepare_robot_proxy_assets.py
 
 
 十八、命令行脚本
@@ -1050,8 +1048,8 @@ scripts/make_contact_sheet.py
     从全部状态 contact_sheet 中随机抽样，复制到：
         <root>/contact_sheets/
 
-scripts/generate_robot_proxy_meshes.py
-    重新生成三套扫地机器人资产。
+scripts/prepare_robot_proxy_assets.py
+    从署名成品 FBX 准备相同拓扑的红、绿、蓝三套扫地机器人资产。
 
 
 十九、测试
@@ -1229,7 +1227,7 @@ conda run -n habitat python scripts/generate_dataset.py \
 
 每个 factual/after state 在对应目录保存 contact_sheet.png、annotated BEV
 和机器人 depth_vis.png。默认 root：
-    outputs/mri_dataset_formal_smoke_hd_v1_2
+    outputs/mri_dataset_formal_smoke_hd_v1_3
 
 7. 生成正式 Level-1
 -------------------
@@ -1447,7 +1445,7 @@ review 中关于 orthographic depth 的纠正成立：
 1. 正式场景与规模
 -----------------
 
-configs/collector.json（protocol mri-formal-v1.2）已冻结为 ReplicaCAD
+configs/collector.json（protocol mri-formal-v1.4）已冻结为 ReplicaCAD
 macro furniture-layout split：
     train = v3_sc0_staging_{00,01}, v3_sc1_staging_{00,01}
     val   = v3_sc2_staging_{00,01}
@@ -1572,22 +1570,21 @@ calibration.validate_multilevel_orthographic_depth()：
 full validation 改为逐 scene 只持有一个 Habitat/OpenGL backend，避免六个 GPU
 context 同时存在导致 driver abort。
 
-6. 高度一致 robot embodiment
+6. 固定成品 robot embodiment
 ----------------------------
 
-正式相机高度不再连续随机，而是：
-    0.4, 0.6, 0.9, 1.2, 1.4 m
+正式机器人使用同一套成品扫地机器人几何：
+    diameter = 0.46 m
+    body height = 0.1066 m
+    camera_height_m = 0.15
+    camera_forward_offset_m = 0.235
 
-每个颜色分别有五个 robot-vacuum + telescoping mast + camera head mesh。
-mesh camera head optical center 与 RobotState.camera_height_m 完全一致。
-proxy 仍保留扫地机器人主体、bumper、wheel、brush、lidar 和传感器细节。
+相机固定在机器人局部 forward 的前保险杠处。RobotState.create()、
+synchronize_camera()、intervention after-state、state_io 和 validation 使用同一
+安装变换。第一视角不会看到自身机身；第三方视角看到的是完整低矮扫地机器人。
 
-生成脚本：
-    scripts/generate_robot_proxy_meshes.py
-
-正式 config 的 robot_proxy_height_variants 根据本 sample 高度选择对应 mesh；
-Bullet collision 使用同一个实际可见 proxy，因此桅杆不会穿家具。
-
+robot_proxy_height_variants 为空；不再生成 0.4–1.4 m 高杆变体。红、绿、蓝 agent
+共享完全相同的顶点/UV/法线/索引，仅 albedo 不同。
 7. controlled semantic
 ----------------------
 
@@ -1686,14 +1683,14 @@ configs/collector_formal_smoke.json：
     num_edits_per_state = 1
     save_visualizations = true
     保存 annotated BEV、depth_vis 和 contact_sheet
-    输出 outputs/mri_dataset_formal_smoke_hd_v1_2
+    输出 outputs/mri_dataset_formal_smoke_hd_v1_3
 
 configs/collector.json：
     完整正式数据集配置
     相同 2048 传感器和 BEV 精度
     8 个 scene instances / 4 个 macro families
     4500 factual states / 10000 interventions
-    输出 outputs/mri_dataset_v1_2
+    输出 outputs/mri_dataset_v1_3
 
 正式高清 smoke 命令：
     conda run -n habitat python scripts/generate_dataset.py \
@@ -1707,7 +1704,7 @@ collector_hd_preview.json 和 collector_pilot.json 已删除；其能力已经�
 正式高清 smoke，避免多个相似配置造成误用。
 
 
-二十九、v1.2 机器人浮空修复（当前最终状态）
+二十九、v1.2 机器人浮空修复（历史状态，已由 v1.3 取代）
 ============================================================
 
 1. 根因
@@ -1768,3 +1765,173 @@ robot proxy 的 OBJ、MTL 和 object config 内容已加入 generation fingerpri
     interventions / after-states = 6
     rendered states = 10
     robot support reports = 30
+
+三十、v1.3 成品机器人 mesh 与前置相机（历史状态，已由 v1.4 取代）
+============================================================
+
+本节覆盖第 17、27、29 节中关于程序化 proxy、高杆和 v1.2 smoke 的历史说明。
+
+1. 成品资产与许可证
+-------------------
+
+正式资产使用 Moryak 的 “Robot vacuum cleaner low poly” 成品模型：
+    source model UID = 7230d8d80e8b4a82b4a34a5e7926d0d3
+    license = CC BY 4.0
+    source FBX SHA-256 =
+      069f80f5023dc2e86eb95bae35b728bec4b42cc3ffea9d3c8b6d0485aaa36d9f
+
+完整署名：
+    assets/robot_proxies/ATTRIBUTION.md
+
+原始 FBX 和 albedo：
+    assets/robot_proxies/source/robot_vacuum_original.fbx
+    assets/robot_proxies/source/robot_vacuum_original_albedo.png
+
+2. 相同几何、颜色区分
+---------------------
+
+scripts/prepare_robot_proxy_assets.py 不构造机身，只规范化作者 mesh 并输出三色版本。
+三台 agent 的 OBJ 顶点、UV、法线和面索引逐行相同；身份只由 albedo 区分：
+    robot_01 = red
+    robot_02 = green
+    robot_03 = blue
+
+最终几何：
+    vertices = 1470
+    triangles = 1234
+    dimensions XYZ = 0.3398 x 0.0788 x 0.3400 m
+    visual local min Y = 0
+    mesh collision = true
+    bounding-box collision = false
+    COM = [0, 0, 0]
+
+旧的 15 个高度变体和 scripts/generate_robot_proxy_meshes.py 已删除。
+
+3. 物理一致相机
+---------------
+
+正式配置固定：
+    camera_height_min_m = camera_height_max_m = 0.12
+    robot_camera_forward_offset_m = 0.175
+    robot_proxy_height_variants = {}
+
+相机位置公式：
+    camera_world =
+      base_world
+      + [0, camera_height_m, 0]
+      + forward_world * robot_camera_forward_offset_m
+
+因此相机位于前保险杠，而不是圆盘中心或虚构高杆。RobotState、干预同步、state_io、
+metadata 和 full validation 都保存并重算同一公式。最终检查中每个机器人自身实例
+可见像素为 0，不会用自己的外壳遮挡第一视角。
+
+4. v1.3 UHD smoke 实测
+----------------------
+
+配置：
+    configs/collector_formal_smoke.json
+输出：
+    outputs/mri_dataset_formal_smoke_hd_v1_3
+
+结果：
+    protocol = mri-formal-v1.3
+    robot RGB-D/instance/semantic = 2048 x 2048
+    factual states = 4
+    interventions / after-states = 6
+    rendered states = 10
+    robot support reports = 30
+    max abs support gap = 1.1410564e-6 m（约 0.0011 mm）
+    max abs proxy/base origin offset = 3.7252901e-10 m
+    max camera mount error = 0
+    max self-visible pixels = 0
+    full validation errors = 0
+    tests = 36 / 36 passed
+    生成输出约 162 MB
+    额外复制 10 张 review sheets 后目录约 195 MB
+
+正式完整数据集输出：
+    outputs/mri_dataset_v1_3
+
+旧 v1.1、v1.2 以及中心相机版 v1.3 中间输出都不可与当前 fingerprint 混用。
+
+三十一、v1.4 放大机器人 embodiment（当前最终状态）
+============================================================
+
+本节覆盖第 17、27、30 节中旧的 0.34 m 机器人尺寸。成品 Mesh、许可证、三色身份和
+贴地方式不变，只统一放大物理 embodiment，并增加资产/配置一致性门禁。
+
+1. 当前尺寸和相机
+-----------------
+
+正式参数：
+    robot_body_diameter_m = 0.46
+    robot_body_height_m = 0.107
+    camera_height_min_m = camera_height_max_m = 0.15
+    robot_camera_forward_offset_m = 0.235
+
+重新导出实测：
+    vertices = 1470
+    triangles = 1234
+    dimensions XYZ = 0.459704 x 0.106591 x 0.460000 m
+    visual local min Y = 0
+
+相对 v1.3 的 0.34 m 直径，水平尺寸增大约 35.3%，投影面积约增大 83%。相机位于
+机身前缘外 5 mm、视觉顶面上方约 43 mm，不穿入 Mesh，也不会看到自身外壳。
+
+2. 一致性与安全门禁
+-------------------
+
+CollectorConfig 显式保存机身直径和高度。启动 HabitatBackend 时逐个实例化红、绿、
+蓝 proxy，实测 visual AABB；尺寸误差超过 2 mm 或 local min Y 不为 0 会在采样前
+报错。配置还强制：
+    camera height > body height
+    camera forward offset 位于前缘到前缘外 5 cm 范围
+    obstacle clearance >= body radius + 0.10 m
+    inter-robot center distance >= body diameter + 0.10 m
+
+正式配置仍使用：
+    min_obstacle_distance_m = 0.55
+    min_inter_robot_distance_m = 0.90
+
+因此 0.46 m 机器人仍分别保留至少约 0.32 m 的障碍物中心净距和 0.44 m 的机器人
+表面间距。实际场景碰撞继续由完整 Mesh collision + Bullet 判定。
+
+3. 协议与输出隔离
+-----------------
+
+当前协议：
+    protocol = mri-formal-v1.4
+高清 smoke 输出：
+    outputs/mri_dataset_formal_smoke_hd_v1_4
+正式完整输出：
+    outputs/mri_dataset_v1_4
+
+generation fingerprint 包含配置字段和机器人资产哈希，因此旧 v1.3 输出不能与 v1.4
+混合或 resume。重新生成资产命令：
+    conda run -n habitat python scripts/prepare_robot_proxy_assets.py
+
+4. v1.4 UHD smoke 实测
+----------------------
+
+配置：
+    configs/collector_formal_smoke.json
+输出：
+    outputs/mri_dataset_formal_smoke_hd_v1_4
+
+结果：
+    generation fingerprint =
+      0724003f229d1583449800c30bf44bdd9369da3f355cb1feb3d93687aeacc6cf
+    factual states = 4
+    interventions / after-states = 6
+    rendered states = 10
+    robot support reports = 30
+    max abs support gap = 9.0524554e-8 m（约 0.000091 mm）
+    max abs proxy/base origin offset = 5.9604645e-9 m
+    max camera mount error = 0
+    max self-visible pixels = 0
+    full validation errors = 0
+    tests = 36 / 36 passed
+    output size = 159 MB（生成 review sheets 前）
+
+人工检查图：
+    outputs/mri_dataset_formal_smoke_hd_v1_4/contact_sheets/

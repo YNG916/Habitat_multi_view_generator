@@ -11,6 +11,7 @@
 - macro-layout 隔离划分：train=`sc0,sc1`，val=`sc2`，test=`sc3`；同一 macro family 不会跨 split。
 - 该划分衡量“同一公寓中的未见家具宏布局”泛化，不能写成“未见房间/未见住宅”泛化。
 - 机器人视角：`2048 × 2048` RGB、metric Z-depth、OBJECT_ID、controlled semantic。
+- 机器人本体：同一套 CC BY 4.0 成品扫地机器人 mesh，红/绿/蓝材质区分 agent；机身直径约 0.46 m、高约 0.107 m；相机固定在前保险杠上方 0.15 m、前向 0.235 m。
 - BEV：目标分辨率 `0.00625 m/pixel`，实际宽高由每个场景的 visual AABB 决定。
 - factual states：train 4000、val 250、test 250，共 4500。
 - Level 2：每个 train state 生成 2 个 ID edit；val/test 分别生成 2 个 ID 和 2 个 OOD edit，共 10000 个 intervention pairs。
@@ -61,10 +62,11 @@ conda run -n habitat python scripts/generate_dataset.py \
   --config configs/collector_formal_smoke.json
 ```
 
-默认输出：`outputs/mri_dataset_formal_smoke_hd_v1_2`。当前实测生成 4 个 factual、
-6 个 intervention/after-states，共 10 个渲染状态，约 189 MB，full validation
-通过。v1.2 同时强制检查 robot proxy 视觉底面、物理地面和 base/camera 原点；旧
-`mri_dataset_formal_smoke_hd`（v1.1）存在高杆机器人浮空问题，不应继续使用。
+默认输出：`outputs/mri_dataset_formal_smoke_hd_v1_4`。当前实测生成 4 个 factual、
+6 个 intervention/after-states，共 10 个渲染状态，约 159 MB，full validation
+通过；30 次贴地检查的最大绝对误差约 0.000091 mm，自身可见像素为 0。v1.4 强制检查成品 robot proxy 的视觉底面、物理地面、base 原点和前保险杠
+相机安装位姿。旧 v1.1/v1.2/v1.3 输出包含程序化高杆或中心相机方案，不应继续用于正式
+数据集。
 成功后再运行完整正式数据集：
 
 ```bash
@@ -72,14 +74,14 @@ conda run -n habitat python scripts/generate_dataset.py \
   --config configs/collector.json
 ```
 
-完整正式输出默认是 `outputs/mri_dataset_v1_2`。两个配置的传感器分辨率和几何协议
+完整正式输出默认是 `outputs/mri_dataset_v1_4`。两个配置的传感器分辨率和几何协议
 相同，区别仅在场景实例数、每场景状态数和是否额外保存人工检查图。相同命令可安全
 重复执行；已完成样本会跳过，配置指纹不一致时会拒绝混合输出。
 
 建议完整生成前检查高清 smoke 的实际体积：
 
 ```bash
-du -sh outputs/mri_dataset_formal_smoke_hd_v1_2
+du -sh outputs/mri_dataset_formal_smoke_hd_v1_4
 ```
 
 ## 分阶段运行
@@ -161,11 +163,20 @@ mri_dataset_v1/
 
 ## Robot mesh 与相机高度
 
-机器人是低多边形扫地机器人，加一根细伸缩桅杆和小型相机头。正式版只采样 0.4、0.6、0.9、1.2、1.4 m 五个高度，并选择完全对应高度的 mesh；第三方视角中的相机头中心与该机器人的第一视角 optical center 一致。重新生成资产：
+正式版不再程序化拼装机器人。三台 agent 使用同一套成品扫地机器人拓扑（直径约
+0.46 m、高约 0.107 m），仅用红、绿、蓝 albedo 区分身份。源 FBX、作者、许可证、
+哈希和变换记录见 `assets/robot_proxies/ATTRIBUTION.md`。
+
+相机不再使用可变高杆：固定高度 0.15 m，并沿机器人局部 forward 安装在前缘
+0.235 m 处，符合前保险杠 RGB-D/避障传感器布局，也避免第一视角看到自己的机身。
+重新准备资产：
 
 ```bash
-conda run -n habitat python scripts/generate_robot_proxy_meshes.py
+conda run -n habitat python scripts/prepare_robot_proxy_assets.py
 ```
+
+该脚本只对作者成品 mesh 做 Y-up、尺度、中心和底面规范化，并生成三色材质；不会
+创建或拼装几何。
 
 ## Instance 与 semantic
 

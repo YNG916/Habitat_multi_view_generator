@@ -11,7 +11,7 @@
     "v3_sc3_staging_01"
   ],
   "navmesh_root": "data/replica_cad/navmeshes",
-  "output_root": "outputs/mri_dataset_v1_2",
+  "output_root": "outputs/mri_dataset_v1_4",
   "gpu_device_id": 0,
   "num_robots": 3,
   "width": 2048,
@@ -19,8 +19,11 @@
   "hfov_deg": 90.0,
   "near": 0.05,
   "far": 20.0,
-  "camera_height_min_m": 0.4,
-  "camera_height_max_m": 1.4,
+  "robot_body_diameter_m": 0.46,
+  "robot_body_height_m": 0.107,
+  "camera_height_min_m": 0.15,
+  "robot_camera_forward_offset_m": 0.235,
+  "camera_height_max_m": 0.15,
   "min_obstacle_distance_m": 0.55,
   "min_inter_robot_distance_m": 0.9,
   "local_sampling_radius_m": 3.5,
@@ -83,7 +86,7 @@
     }
   },
   "dataset_version": "1.0.0",
-  "protocol_version": "mri-formal-v1.2",
+  "protocol_version": "mri-formal-v1.4",
   "min_target_visible_observers": 1,
   "num_states_by_split": {
     "train": 1000,
@@ -174,33 +177,7 @@
   },
   "require_visible_robot_target": true,
   "require_visible_object_target": true,
-  "robot_proxy_height_variants": {
-    "0.4": [
-      "assets/robot_proxies/robot_red_h040.object_config.json",
-      "assets/robot_proxies/robot_green_h040.object_config.json",
-      "assets/robot_proxies/robot_blue_h040.object_config.json"
-    ],
-    "0.6": [
-      "assets/robot_proxies/robot_red_h060.object_config.json",
-      "assets/robot_proxies/robot_green_h060.object_config.json",
-      "assets/robot_proxies/robot_blue_h060.object_config.json"
-    ],
-    "0.9": [
-      "assets/robot_proxies/robot_red_h090.object_config.json",
-      "assets/robot_proxies/robot_green_h090.object_config.json",
-      "assets/robot_proxies/robot_blue_h090.object_config.json"
-    ],
-    "1.2": [
-      "assets/robot_proxies/robot_red_h120.object_config.json",
-      "assets/robot_proxies/robot_green_h120.object_config.json",
-      "assets/robot_proxies/robot_blue_h120.object_config.json"
-    ],
-    "1.4": [
-      "assets/robot_proxies/robot_red_h140.object_config.json",
-      "assets/robot_proxies/robot_green_h140.object_config.json",
-      "assets/robot_proxies/robot_blue_h140.object_config.json"
-    ]
-  },
+  "robot_proxy_height_variants": {},
   "pinhole_validation_min_samples": 3,
   "pinhole_validation_median_error_m": 0.03,
   "height_validation_min_samples": 8,

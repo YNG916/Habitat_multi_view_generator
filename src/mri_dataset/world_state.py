@@ -84,6 +84,7 @@ class RobotState:
     camera_height_m: float
     camera: CameraState
     proxy_asset_handle: str = ""
+    camera_forward_offset_m: float = 0.0
     proxy_semantic_id: int = 0
     visibility: Dict[str, Any] = field(default_factory=dict)
 
@@ -99,17 +100,22 @@ class RobotState:
         hfov_deg: float,
         near: float,
         far: float,
+        camera_forward_offset_m: float = 0.0,
         proxy_asset_handle: str = "",
         proxy_semantic_id: int = 0,
     ) -> "RobotState":
         base = np.asarray(base_position_world, dtype=np.float64)
         quaternion = yaw_to_quaternion_xyzw(yaw_rad)
         camera_position = base + np.array([0.0, camera_height_m, 0.0])
+        camera_position += forward_from_quaternion(quaternion) * float(
+            camera_forward_offset_m
+        )
         camera = CameraState.create(
             camera_position.tolist(), quaternion.tolist(), width, height, hfov_deg, near, far
         )
         return cls(
             robot_id=robot_id,
+            camera_forward_offset_m=float(camera_forward_offset_m),
             base_position_world=base.tolist(),
             yaw_rad=float(yaw_rad),
             camera_height_m=float(camera_height_m),
@@ -121,7 +127,11 @@ class RobotState:
     def synchronize_camera(self) -> None:
         base = np.asarray(self.base_position_world, dtype=np.float64)
         quaternion = yaw_to_quaternion_xyzw(self.yaw_rad)
-        self.camera.position_world = (base + [0.0, self.camera_height_m, 0.0]).tolist()
+        camera_position = base + [0.0, self.camera_height_m, 0.0]
+        camera_position += forward_from_quaternion(quaternion) * float(
+            self.camera_forward_offset_m
+        )
+        self.camera.position_world = camera_position.tolist()
         self.camera.quaternion_world_xyzw = quaternion.tolist()
 
     def metadata(self, paths: Dict[str, str]) -> Dict[str, Any]:
@@ -133,6 +143,7 @@ class RobotState:
             "quaternion_world_xyzw": quaternion,
             "forward_world": forward_from_quaternion(quaternion),
             "camera_height_m": float(self.camera_height_m),
+            "camera_forward_offset_m": float(self.camera_forward_offset_m),
             "T_world_from_robot": transform_matrix(self.base_position_world, quaternion),
             "proxy_asset_handle": self.proxy_asset_handle,
             "proxy_semantic_id": self.proxy_semantic_id,

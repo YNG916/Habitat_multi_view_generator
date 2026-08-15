@@ -1,3 +1,4 @@
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -93,6 +94,63 @@ class FormalProtocolTests(unittest.TestCase):
                     "apt_5": {"bev_camera_height_m": 2.2},
                 },
             )
+
+
+class FinishedRobotAssetTests(unittest.TestCase):
+    asset_dir = Path(__file__).resolve().parents[1] / "assets" / "robot_proxies"
+
+    def test_agents_share_one_grounded_finished_topology(self):
+        geometry_payloads = []
+        for color in ("red", "green", "blue"):
+            obj_path = self.asset_dir / f"robot_{color}.obj"
+            lines = obj_path.read_text(encoding="utf-8").splitlines()
+            geometry = [
+                line for line in lines
+                if line.startswith(("v ", "vt ", "vn ", "f "))
+            ]
+            geometry_payloads.append(geometry)
+            y_values = [
+                float(line.split()[2]) for line in lines if line.startswith("v ")
+            ]
+            vertices = np.asarray([
+                [float(value) for value in line.split()[1:4]]
+                for line in lines if line.startswith("v ")
+            ])
+            self.assertAlmostEqual(min(y_values), 0.0, places=8)
+            dimensions = np.ptp(vertices, axis=0)
+            self.assertAlmostEqual(max(dimensions[0], dimensions[2]), 0.46, places=5)
+            self.assertAlmostEqual(dimensions[1], 0.107, delta=0.002)
+            config = json.loads(
+                (self.asset_dir / f"robot_{color}.object_config.json").read_text()
+            )
+            self.assertFalse(config["use_bounding_box_for_collision"])
+            self.assertEqual(config["COM"], [0.0, 0.0, 0.0])
+        self.assertEqual(geometry_payloads[0], geometry_payloads[1])
+        self.assertEqual(geometry_payloads[1], geometry_payloads[2])
+
+    def test_agent_albedos_are_distinct_and_source_is_attributed(self):
+        albedos = [
+            (self.asset_dir / f"robot_{color}_albedo.png").read_bytes()
+            for color in ("red", "green", "blue")
+        ]
+        self.assertEqual(len(set(albedos)), 3)
+        attribution = (self.asset_dir / "ATTRIBUTION.md").read_text()
+        self.assertIn("Moryak", attribution)
+        self.assertIn("CC BY 4.0", attribution)
+        self.assertTrue(
+            (self.asset_dir / "source" / "robot_vacuum_original.fbx").is_file()
+        )
+
+    def test_formal_embodiment_uses_fixed_camera_height(self):
+        config = load_config()
+        self.assertAlmostEqual(config.robot_body_diameter_m, 0.46, places=8)
+        self.assertAlmostEqual(config.robot_body_height_m, 0.107, places=8)
+        self.assertAlmostEqual(config.camera_height_min_m, 0.15, places=8)
+        self.assertAlmostEqual(config.camera_height_max_m, 0.15, places=8)
+        self.assertEqual(config.robot_proxy_height_variants, {})
+        self.assertAlmostEqual(
+            config.robot_camera_forward_offset_m, 0.235, places=8
+        )
 
 
 class NumericStorageTests(unittest.TestCase):
