@@ -164,6 +164,18 @@ def _translate_bbox(obj, displacement: np.ndarray) -> None:
         obj.bbox[key] = (np.asarray(obj.bbox[key], dtype=np.float64) + displacement).tolist()
 
 
+def _point_segment_distance_xz(point, start, end) -> float:
+    point = np.asarray(point, dtype=np.float64)[[0, 2]]
+    start = np.asarray(start, dtype=np.float64)[[0, 2]]
+    end = np.asarray(end, dtype=np.float64)[[0, 2]]
+    segment = end - start
+    denominator = float(np.dot(segment, segment))
+    if denominator <= 1e-18:
+        return float(np.linalg.norm(point - start))
+    fraction = float(np.clip(np.dot(point - start, segment) / denominator, 0.0, 1.0))
+    return float(np.linalg.norm(point - (start + fraction * segment)))
+
+
 def validate_robot_translation(
     before: WorldState,
     after: WorldState,
@@ -171,6 +183,7 @@ def validate_robot_translation(
     pathfinder,
     floor_tolerance_m: float,
     min_separation_m: float,
+    min_object_separation_m: float = 0.0,
     endpoint_tolerance_m: float = 1e-3,
 ) -> None:
     robot_before = before.robot(edit.target_id)
@@ -224,8 +237,19 @@ def validate_robot_translation(
     for other in after.robots:
         if other.robot_id == edit.target_id:
             continue
-        separation = np.linalg.norm(
-            new[[0, 2]] - np.asarray(other.base_position_world, dtype=np.float64)[[0, 2]]
+        separation = _point_segment_distance_xz(
+            other.base_position_world, old, new
         )
         if separation < min_separation_m:
-            raise ValueError("Robot intervention violates minimum separation")
+            raise ValueError(
+                "Robot intervention swept path violates robot separation"
+            )
+    if min_object_separation_m > 0.0:
+        for obj in after.objects:
+            if not obj.active:
+                continue
+            separation = _point_segment_distance_xz(obj.position_world, old, new)
+            if separation < min_object_separation_m:
+                raise ValueError(
+                    "Robot intervention swept path intersects a controlled object"
+                )

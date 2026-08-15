@@ -11,21 +11,50 @@ def main():
     parser = argparse.ArgumentParser(description="Generate Level 2 pairs via shared WorldState edits")
     parser.add_argument("--config", default="configs/collector.json")
     parser.add_argument("--root")
-    parser.add_argument("--scene", default="apt_1")
     parser.add_argument(
-        "--num-edits",
-        "--num-edits-per-state",
-        dest="num_edits",
-        type=int,
-        default=1,
-        help="Total valid edits to generate (legacy alias: --num-edits-per-state)",
+        "--scene", help="One scene; default collects every configured scene"
     )
-    parser.add_argument("--type", default="robot_translate", choices=["robot_translate", "robot_rotate", "object_translate", "object_place_relative", "object_remove"])
+    parser.add_argument(
+        "--num-edits-per-state",
+        "--num-edits",
+        dest="num_edits_per_state",
+        type=int,
+        help="Valid edits per factual state and per requested regime",
+    )
+    parser.add_argument(
+        "--type",
+        default="mixed",
+        choices=[
+            "mixed",
+            "robot_translate",
+            "robot_rotate",
+            "object_translate",
+            "object_place_relative",
+            "object_remove",
+        ],
+    )
+    parser.add_argument(
+        "--regimes",
+        help="Comma-separated subset of the split protocol, e.g. id,ood",
+    )
     args = parser.parse_args()
     config = load_config(args.config, output_root=args.root)
-    with HabitatBackend(config, args.scene) as backend:
-        paths = collect_level2(backend, config, config.output_path, args.num_edits, args.type)
-    print(f"Generated {len(paths)} Level 2 edits under {config.output_path}")
+    scenes = [args.scene] if args.scene else config.scenes
+    regimes = args.regimes.split(",") if args.regimes else None
+    total = 0
+    for scene in scenes:
+        with HabitatBackend(config, scene) as backend:
+            paths = collect_level2(
+                backend,
+                config,
+                config.output_path,
+                args.num_edits_per_state,
+                None if args.type == "mixed" else args.type,
+                regimes,
+            )
+        total += len(paths)
+        print(f"Generated {len(paths)} new Level 2 edits for {scene}")
+    print(f"Generated {total} new Level 2 edits under {config.output_path}")
 
 
 if __name__ == "__main__":

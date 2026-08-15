@@ -111,13 +111,36 @@ class Mesh:
         return "\n".join(lines) + "\n"
 
 
-def build_mesh():
+def build_mesh(camera_height_m=None):
     mesh = Mesh()
     mesh.cylinder(0.282, 0.035, 0.108, 32, "body", top_material="body", bottom_material="trim")
     mesh.cylinder(0.255, 0.108, 0.119, 32, "deck", top_material="deck")
     mesh.cylinder(0.292, 0.055, 0.101, 32, "trim", caps=False)
     mesh.cylinder(0.052, 0.119, 0.174, 20, "sensor", 0.065, 0.035, top_material="sensor")
     mesh.cylinder(0.018, 0.119, 0.128, 16, "status", -0.075, -0.020, top_material="status")
+
+    if camera_height_m is not None:
+        camera_height_m = float(camera_height_m)
+        if camera_height_m < 0.30:
+            raise ValueError("Camera mast height must clear the robot-vacuum body")
+        # Thin telescoping mast and compact camera head. The optical center is
+        # exactly camera_height_m, matching RobotState camera metadata.
+        mesh.cylinder(
+            0.018, 0.119, camera_height_m - 0.035, 12, "trim",
+            center_x=0.0, center_z=0.035,
+        )
+        mesh.box(
+            -0.052, 0.052,
+            camera_height_m - 0.035, camera_height_m + 0.035,
+            -0.012, 0.082,
+            "sensor",
+        )
+        mesh.box(
+            -0.018, 0.018,
+            camera_height_m - 0.012, camera_height_m + 0.012,
+            -0.020, -0.013,
+            "status",
+        )
 
     # Two drive wheels and small front/rear sensor windows.
     mesh.box(-0.298, -0.260, 0.012, 0.076, -0.090, 0.090, "wheel")
@@ -192,27 +215,33 @@ illum 2
 
 def main():
     ASSET_DIR.mkdir(parents=True, exist_ok=True)
-    mesh = build_mesh()
+    camera_heights = [None, 0.4, 0.6, 0.9, 1.2, 1.4]
+    generated = 0
     for index, (name, palette) in enumerate(PALETTES.items(), start=1):
-        stem = f"robot_{name}"
-        (ASSET_DIR / f"{stem}.obj").write_text(
-            mesh.obj_text(f"{stem}.mtl"), encoding="utf-8"
-        )
-        (ASSET_DIR / f"{stem}.mtl").write_text(
+        material_name = f"robot_{name}.mtl"
+        (ASSET_DIR / material_name).write_text(
             material_text(palette["body"], palette["deck"]), encoding="utf-8"
         )
-        config = {
-            "render_asset": f"{stem}.obj",
-            "use_bounding_box_for_collision": True,
-            "mass": 4.0,
-            "COM": [0.0, 0.08, 0.0],
-            "join_collision_meshes": True,
-            "semantic_id": 1000 + index,
-        }
-        (ASSET_DIR / f"{stem}.object_config.json").write_text(
-            json.dumps(config, indent=2) + "\n", encoding="utf-8"
-        )
-    print(f"Generated {len(PALETTES)} robot-vacuum proxies in {ASSET_DIR}")
+        for camera_height_m in camera_heights:
+            suffix = "" if camera_height_m is None else f"_h{round(100 * camera_height_m):03d}"
+            stem = f"robot_{name}{suffix}"
+            mesh = build_mesh(camera_height_m)
+            (ASSET_DIR / f"{stem}.obj").write_text(
+                mesh.obj_text(material_name), encoding="utf-8"
+            )
+            config = {
+                "render_asset": f"{stem}.obj",
+                "use_bounding_box_for_collision": True,
+                "mass": 4.0,
+                "COM": [0.0, 0.08, 0.0],
+                "join_collision_meshes": True,
+                "semantic_id": 1000 + index,
+            }
+            (ASSET_DIR / f"{stem}.object_config.json").write_text(
+                json.dumps(config, indent=2) + "\n", encoding="utf-8"
+            )
+            generated += 1
+    print(f"Generated {generated} robot-vacuum proxies in {ASSET_DIR}")
 
 
 if __name__ == "__main__":

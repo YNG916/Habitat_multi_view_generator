@@ -9,6 +9,7 @@ try:
 except ImportError:
     HABITAT_AVAILABLE = False
 
+from mri_dataset.calibration import validate_multilevel_orthographic_depth
 from mri_dataset.collector import make_world_state
 from mri_dataset.config import REPO_ROOT, load_config
 from mri_dataset.habitat_backend import HabitatBackend
@@ -39,11 +40,24 @@ class HabitatCorrectnessIntegrationTests(unittest.TestCase):
     def tearDownClass(cls):
         cls.backend.close()
 
+    def test_multilevel_orthographic_depth_calibration(self):
+        report = validate_multilevel_orthographic_depth(self.config)
+        self.assertTrue(report["passed"], report)
+        self.assertEqual(report["heights_m"], [0.2, 0.5, 1.0, 1.5])
+        self.assertLessEqual(
+            report["max_abs_error_m"],
+            self.config.height_validation_max_error_m,
+            report,
+        )
+
     def test_real_orthographic_depth_height_and_object_ids(self):
         state = make_world_state(
             self.backend, self.config, "integration_depth", 123, deterministic_debug=True
         )
         outputs = self.backend.render(state)
+        for robot in state.robots:
+            expected_tag = f"_h{round(100 * robot.camera_height_m):03d}"
+            self.assertIn(expected_tag, robot.proxy_asset_handle)
         valid = np.isfinite(outputs["bev_metric_depth"])
         self.assertGreater(int(valid.sum()), 0)
         # v0.3.3's generic unprojection is not linear metric depth for an
@@ -67,7 +81,18 @@ class HabitatCorrectnessIntegrationTests(unittest.TestCase):
         )
 
         instance = outputs["bev_instance"]
+        semantic = outputs["bev_semantic"]
         self.assertIsNotNone(instance)
+        self.assertIsNotNone(semantic)
+        self.assertEqual(semantic.dtype, np.uint16)
+        expected_semantic_ids = {
+            self.config.semantic_category_ids["robot"],
+            *(
+                self.config.semantic_category_ids[obj.category]
+                for obj in state.objects
+            ),
+        }
+        self.assertTrue(expected_semantic_ids & set(map(int, np.unique(semantic))))
         visible_robot_ids = [
             outputs["entity_object_ids"][robot.robot_id]
             for robot in state.robots

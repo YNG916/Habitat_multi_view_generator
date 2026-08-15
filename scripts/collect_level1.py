@@ -14,11 +14,16 @@ def main():
     parser.add_argument("--scene")
     parser.add_argument("--output-root")
     args = parser.parse_args()
-    config = load_config(args.config, num_states=args.num_states, output_root=args.output_root)
+    config = load_config(args.config, output_root=args.output_root)
     scenes = [args.scene] if args.scene else config.scenes
     for scene in scenes:
         with HabitatBackend(config, scene) as backend:
-            paths = collect_level1(backend, config, config.output_path, config.num_states)
+            target = (
+                args.num_states
+                if args.num_states is not None
+                else config.states_for_scene(scene)
+            )
+            paths = collect_level1(backend, config, config.output_path, target)
         print(f"Generated {len(paths)} Level 1 states for {scene} under {config.output_path}")
 
 

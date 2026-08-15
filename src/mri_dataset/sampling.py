@@ -88,12 +88,41 @@ def sample_yaws(
 
 
 def build_robot_states(positions, yaws, rng, config, deterministic_heights=None) -> List[RobotState]:
-    heights = deterministic_heights or rng.uniform(
-        config.camera_height_min_m, config.camera_height_max_m, len(positions)
-    )
+    height_variants = {
+        float(key): value for key, value in config.robot_proxy_height_variants.items()
+    }
+    if deterministic_heights is not None:
+        heights = list(map(float, deterministic_heights))
+    elif height_variants:
+        available = np.asarray(sorted(height_variants), dtype=np.float64)
+        heights = available[
+            rng.integers(0, len(available), size=len(positions))
+        ].tolist()
+    else:
+        heights = rng.uniform(
+            config.camera_height_min_m,
+            config.camera_height_max_m,
+            len(positions),
+        )
     robots = []
     for index, (position, yaw, height) in enumerate(zip(positions, yaws, heights), start=1):
-        proxy = config.robot_proxy_configs[index - 1] if index <= len(config.robot_proxy_configs) else ""
+        if height_variants:
+            matching = [
+                candidate
+                for candidate in height_variants
+                if math.isclose(candidate, float(height), abs_tol=1e-9)
+            ]
+            if not matching:
+                raise ValueError(
+                    f"Camera height {height} has no embodiment-matched proxy mesh"
+                )
+            proxy = height_variants[matching[0]][index - 1]
+        else:
+            proxy = (
+                config.robot_proxy_configs[index - 1]
+                if index <= len(config.robot_proxy_configs)
+                else ""
+            )
         robots.append(
             RobotState.create(
                 f"robot_{index:02d}", position.tolist(), yaw, float(height),

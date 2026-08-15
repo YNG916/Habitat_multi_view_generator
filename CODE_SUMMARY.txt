@@ -1456,3 +1456,204 @@ review 中关于 orthographic depth 的纠正成立：
     5. 可变相机桅杆：
        属于 embodiment/presentation 资产改造，不影响当前 invisible camera
        rig 的 metric GT，但论文若强调真实机器人外形应单独实现。
+
+
+二十七、正式 MRI Dataset v1（覆盖第 22、23、25、26 节的历史状态）
+============================================================
+
+上一节记录的是 review 修复后的 pilot 状态；以下是当前正式实现。
+
+1. 正式场景与规模
+-----------------
+
+configs/collector.json 已冻结：
+    train = apt_0, apt_1, apt_2, apt_3
+    val   = apt_4
+    test  = apt_5
+
+每个 train scene 1000 factual states；val/test 各 250：
+    factual states = 4500
+
+num_edits_per_state = 2，按每个 regime 独立计算：
+    train：每 state 2 个 ID
+    val：  每 state 2 个 ID + 2 个 OOD
+    test： 每 state 2 个 ID + 2 个 OOD
+
+总计：
+    interventions / after-states = 10000
+    rendered states = 14500
+
+正式单一入口：
+    scripts/generate_dataset.py
+
+它依次执行：
+    multi-height calibration
+    -> multi-scene Level 1
+    -> split-aware ID/OOD Level 2
+    -> dataset/split index
+    -> full validation
+
+2. protocol.py
+--------------
+
+新增 src/mri_dataset/protocol.py：
+
+stable_seed(...)
+    使用 SHA-256 派生稳定 uint32 seed，不依赖 Python hash 随机化。
+
+sample_intervention(...)
+    从 benchmark-visible targets 中按权重选择：
+        robot_translate       0.25
+        robot_rotate          0.20
+        object_translate      0.25
+        object_place_relative 0.20
+        object_remove         0.10
+
+ID：
+    translation / placement = 0.5, 1.0 m
+    rotation = +/-30, +/-60 deg
+
+OOD：
+    translation / placement = 0.75, 1.5 m
+    rotation = +/-45, +/-90 deg
+
+目标、reference robot、world/reference frame 和 +/-X/-Z direction 均确定性采样。
+geometry validity 不由 sampler 猜测，而是在 after-state 上经 NavMesh、physical
+floor、controlled geometry 和 Bullet 精确验证；失败后换稳定 attempt seed，绝不
+snap、缩短或悄悄改变 GT。
+
+3. 正式 split 与 leakage 防护
+-----------------------------
+
+update_dataset_index() 现在输出：
+    splits/level1_train.json
+    splits/level1_val.json
+    splits/level1_test.json
+    splits/level2_<split>_<id|ood>.json
+    splits/train.json, val.json, test.json
+
+factual states、intervention-derived after-states、edit records 分开索引。
+validation 会检查：
+    scene family 不跨 split
+    split union 与 dataset.json 完全一致
+    after-state 全部由 edit 引用
+    standalone regime manifest 与 split manifest 一致
+    structured parameter 属于声明的 ID/OOD domain
+    target visibility 达到协议阈值
+
+4. 原子存储、压缩与恢复
+-----------------------
+
+serialization.write_json() 改为同目录临时文件 + fsync + os.replace。
+save_rendered_state() 继续使用临时目录 + os.replace 原子发布。
+
+正式数值数组使用 np.savez_compressed：
+    depth.npz
+    instance.npz
+    semantic.npz
+    height.npz
+    occupancy.npz
+
+load_numeric() 同时兼容旧 .npy 和正式 .npz。
+
+Level 1：
+    num_states 是目标总数，不是追加数量；完整目录直接 resume。
+
+Level 2：
+    ID = before state + regime + slot；重复命令不会重复生成。
+    如果 after-state 已原子发布但 edit JSON 在中断前未写完，会从 after-state
+    intervention 和稳定 sampler attempt 重建 edit metadata。
+
+每个 scene 保存 Level 1/2 collection status 和 rejection histogram。
+dataset root 保存 config fingerprint；几何/协议字段不同的配置不能混写同一 root。
+
+5. 新 calibration / quality gates
+----------------------------------
+
+assets/calibration/multilevel_slabs.obj：
+    同一个 render/collision mesh 包含 0.2, 0.5, 1.0, 1.5 m 四个 slab。
+
+calibration.validate_multilevel_orthographic_depth()：
+    在 empty_stage 做真实 Habitat orthographic render 和 Bullet ray。
+    当前四高度最大误差约 5.96e-7 m。
+
+每个 state 还执行：
+    - 至少 8 条 floor height render/Bullet rays；
+    - 3x3 off-center pinhole grid，OBJECT_ID 过滤后使用静态 stage 射线；
+    - pinhole median error <= 3 cm；
+    - factual state 至少一个可见 robot target 和一个可见 object target；
+    - BEV centroid registration、physical support 和 Bullet collision。
+
+full validation 改为逐 scene 只持有一个 Habitat/OpenGL backend，避免六个 GPU
+context 同时存在导致 driver abort。
+
+6. 高度一致 robot embodiment
+----------------------------
+
+正式相机高度不再连续随机，而是：
+    0.4, 0.6, 0.9, 1.2, 1.4 m
+
+每个颜色分别有五个 robot-vacuum + telescoping mast + camera head mesh。
+mesh camera head optical center 与 RobotState.camera_height_m 完全一致。
+proxy 仍保留扫地机器人主体、bumper、wheel、brush、lidar 和传感器细节。
+
+生成脚本：
+    scripts/generate_robot_proxy_meshes.py
+
+正式 config 的 robot_proxy_height_variants 根据本 sample 高度选择对应 mesh；
+Bullet collision 使用同一个实际可见 proxy，因此桅杆不会穿家具。
+
+7. controlled semantic
+----------------------
+
+ReplicaCAD 没有完整原生 semantic scene，所以不伪造 stage/furniture 标签。
+在 OBJECT_ID 上确定性派生受控类别 semantic：
+    0  unlabeled scene
+    1  robot
+    10 cup
+    11 bowl
+    12 book
+
+每个 robot view 和 BEV 同时保存 instance 与 semantic，metadata 和
+categories.json 明确记录 scope 和 category IDs。
+
+8. 当前验证结果
+---------------
+
+单元/集成测试：
+    31 / 31 passed
+
+真实集成覆盖：
+    orthographic depth + OBJECT_ID + controlled semantic
+    0.2/0.5/1.0/1.5 m multi-height render/Bullet calibration
+    robot/object 双向 Bullet collision
+    robot exact path + physical target floor
+    object target-floor support
+
+六场景正式 smoke（自动清理）：
+    apt_0 ... apt_5
+    factual states = 6
+    interventions = 8
+    rendered states checked = 14
+    full validation errors = 0
+    passed = true
+
+断点续采 smoke（自动清理）：
+    第一次生成后重复完全相同命令
+    second run new_level1_states = 0
+    second run new_level2_edits = 0
+    metadata validation passed = true
+
+9. 正式运行
+-----------
+
+先运行：
+    conda run -n habitat python scripts/generate_dataset.py \
+      --config configs/collector_formal_smoke.json
+
+再运行完整数据集：
+    conda run -n habitat python scripts/generate_dataset.py \
+      --config configs/collector.json
+
+重复相同命令即断点续采。完整 2048 数据集非常大，应先检查 smoke 的 du，
+确认最终 output_root 有足够空间。

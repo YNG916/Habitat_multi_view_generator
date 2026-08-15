@@ -17,7 +17,17 @@ class DatasetIndexTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / "splits").mkdir()
-            write_json(root / "dataset.json", {"states": [], "interventions": []})
+            write_json(
+                root / "dataset.json",
+                {
+                    "states": [],
+                    "interventions": [],
+                    "scene_splits": {
+                        "train": ["apt_1"], "val": [], "test": []
+                    },
+                    "protocol": {"intervention_regimes": {"id": {}, "ood": {}}},
+                },
+            )
 
             factual = root / "scenes/apt_1/states/state_000001"
             derived = root / "scenes/apt_1/states/state_after_000001"
@@ -41,7 +51,16 @@ class DatasetIndexTests(unittest.TestCase):
             )
             edit_path = root / "interventions/apt_1/edit_000001.json"
             edit_path.parent.mkdir(parents=True)
-            write_json(edit_path, {"scene_id": "apt_1"})
+            write_json(
+                edit_path,
+                {
+                    "scene_id": "apt_1",
+                    "split": "train",
+                    "benchmark_regime": "id",
+                    "before_state_path": str(factual.relative_to(root)),
+                    "after_state_path": str(derived.relative_to(root)),
+                },
+            )
 
             update_dataset_index(root)
 

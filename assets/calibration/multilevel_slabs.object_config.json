@@ -1,0 +1,9 @@
+{
+  "render_asset": "multilevel_slabs.obj",
+  "collision_asset": "multilevel_slabs.obj",
+  "use_bounding_box_for_collision": false,
+  "join_collision_meshes": false,
+  "mass": 1.0,
+  "margin": 0.0,
+  "shader_type": "phong"
+}

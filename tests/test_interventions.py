@@ -8,7 +8,7 @@ from mri_dataset.interventions import (
     apply_intervention,
     validate_robot_translation,
 )
-from mri_dataset.world_state import RobotState, WorldState
+from mri_dataset.world_state import ObjectState, RobotState, WorldState
 
 
 def robot(robot_id, position, yaw):
@@ -62,6 +62,33 @@ class InterventionTests(unittest.TestCase):
         validate_robot_translation(
             self.state, after, edit, StraightPathfinder(), 0.05, 0.9
         )
+
+    def test_translation_rejects_controlled_object_on_swept_path(self):
+        edit = Intervention(
+            "robot_translate",
+            "robot_02",
+            {"reference_frame": "target_local", "forward_m": 1.0},
+        )
+        after = apply_intervention(self.state, edit)
+        after.objects = [
+            ObjectState(
+                "object_001",
+                "book",
+                "book.object_config.json",
+                [1.5, 0.25, 2.0],
+                [0.0, 0.0, 0.0, 1.0],
+            )
+        ]
+        with self.assertRaisesRegex(ValueError, "swept path intersects"):
+            validate_robot_translation(
+                self.state,
+                after,
+                edit,
+                StraightPathfinder(),
+                0.05,
+                0.9,
+                min_object_separation_m=0.65,
+            )
 
     def test_translation_rejects_blocked_straight_path(self):
         edit = Intervention(

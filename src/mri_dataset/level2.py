@@ -1,14 +1,25 @@
 from __future__ import annotations
 
+from collections import Counter
 from pathlib import Path
-from typing import List
+from typing import List, Optional, Sequence
 
 import numpy as np
 
-from .collector import update_dataset_index
+from .collector import initialize_dataset_root, update_dataset_index
 from .interventions import Intervention, apply_intervention, canonical_instruction, validate_robot_translation
 from .objects import controlled_object_collision_free
-from .serialization import save_rendered_state, write_json
+from .protocol import (
+    benchmark_visible_observers,
+    intervention_key,
+    sample_intervention,
+    stable_seed,
+)
+from .serialization import (
+    save_rendered_state,
+    state_directory_complete,
+    write_json,
+)
 from .state_io import load_world_state
 from .visualization import before_after_contact_sheet
 
@@ -48,6 +59,7 @@ def validate_robot_edit(backend, before, state, edit: Intervention) -> None:
             backend.sim.pathfinder,
             backend.config.floor_tolerance_m,
             backend.config.min_inter_robot_distance_m,
+            backend.config.controlled_object_min_separation_m,
         )
         robot = state.robot(edit.target_id)
         nav_target = np.asarray(
@@ -113,61 +125,304 @@ def validate_object_edit(backend, state, target_id: str) -> None:
         )
 
 
-def collect_level2(backend, config, root: Path, num_edits: int, edit_type: str = "robot_translate") -> List[Path]:
+def _validate_edit(backend, before, after, edit: Intervention) -> None:
+    if edit.type.startswith("robot_"):
+        validate_robot_edit(backend, before, after, edit)
+    elif edit.type.startswith("object_"):
+        validate_object_edit(backend, after, edit.target_id)
+    else:
+        raise ValueError(f"Unsupported intervention type: {edit.type}")
+
+
+def _edit_identifiers(before_state_id: str, regime: str, slot: int) -> tuple:
+    suffix = before_state_id.removeprefix("state_")
+    edit_id = f"edit_{suffix}_{slot:03d}_{regime}"
+    after_state_id = f"state_after_{suffix}_{slot:03d}_{regime}"
+    return edit_id, after_state_id
+
+
+def _sampling_candidate(
+    before,
+    config,
+    regime: str,
+    slot: int,
+    attempt: int,
+    requested_type: Optional[str],
+):
+    seed = stable_seed(
+        config.random_seed,
+        config.protocol_version,
+        before.scene_id,
+        before.state_id,
+        regime,
+        slot,
+        attempt,
+    )
+    edit = sample_intervention(before, config, regime, seed, requested_type)
+    return edit, seed
+
+
+def _write_edit_record(
+    path: Path,
+    root: Path,
+    before_dir: Path,
+    after_dir: Path,
+    before,
+    after,
+    edit: Intervention,
+    config,
+    regime: str,
+    slot: int,
+    sampling_seed: int,
+    sampling_attempt: int,
+    recovered: bool = False,
+) -> None:
+    split = config.scene_split(before.scene_id)
+    write_json(
+        path,
+        {
+            "schema_version": "1.0.0",
+            "edit_id": path.stem,
+            "scene_id": before.scene_id,
+            "split": split,
+            "benchmark_regime": regime,
+            "protocol_version": config.protocol_version,
+            "before_state_id": before.state_id,
+            "before_state_path": str(before_dir.relative_to(root)),
+            "after_state_id": after.state_id,
+            "after_state_path": str(after_dir.relative_to(root)),
+            "structured_intervention": edit.to_dict(),
+            "instruction": canonical_instruction(edit, before),
+            "instruction_paraphrases": [],
+            "mllm_generated": False,
+            "human_verified": False,
+            "sampling": {
+                "slot": int(slot),
+                "attempt": int(sampling_attempt),
+                "seed": int(sampling_seed),
+                "recovered_after_interruption": bool(recovered),
+            },
+            "target_visible_observers_before": benchmark_visible_observers(
+                before.robot(edit.target_id)
+                if edit.target_id.startswith("robot_")
+                else before.object(edit.target_id)
+            ),
+            "visibility_transition": visibility_transition(
+                before, after, edit.target_id
+            ),
+        },
+    )
+
+
+def _recover_edit_record(
+    edit_path: Path,
+    root: Path,
+    before_dir: Path,
+    after_dir: Path,
+    before,
+    config,
+    regime: str,
+    slot: int,
+    requested_type: Optional[str],
+) -> Intervention:
+    if not state_directory_complete(after_dir):
+        raise RuntimeError(f"Interrupted after-state is incomplete: {after_dir}")
+    after = load_world_state(after_dir)
+    stored_key = intervention_key(Intervention.from_dict(after.intervention))
+    for attempt in range(int(config.max_intervention_sampling_attempts)):
+        try:
+            candidate, seed = _sampling_candidate(
+                before, config, regime, slot, attempt, requested_type
+            )
+        except ValueError:
+            continue
+        if intervention_key(candidate) == stored_key:
+            _write_edit_record(
+                edit_path,
+                root,
+                before_dir,
+                after_dir,
+                before,
+                after,
+                candidate,
+                config,
+                regime,
+                slot,
+                seed,
+                attempt,
+                recovered=True,
+            )
+            return candidate
+    raise RuntimeError(
+        f"Could not reconstruct sampling metadata for interrupted state {after_dir}"
+    )
+
+
+def collect_level2(
+    backend,
+    config,
+    root: Path,
+    num_edits_per_state: Optional[int] = None,
+    edit_type: Optional[str] = None,
+    regimes: Optional[Sequence[str]] = None,
+) -> List[Path]:
+    """Generate deterministic Level-2 pairs for each factual input state.
+
+    ``num_edits_per_state`` is applied independently to every requested regime.
+    Train defaults to ID only; validation/test default to both ID and OOD.
+    Existing complete slots are skipped when ``config.resume`` is enabled.
+    """
     root = Path(root)
-    before_dirs = sorted(root.glob(f"scenes/{backend.scene_id}/states/state_[0-9][0-9][0-9][0-9][0-9][0-9]"))
+    initialize_dataset_root(root, config)
+    before_dirs = sorted(
+        root.glob(
+            f"scenes/{backend.scene_id}/states/"
+            "state_[0-9][0-9][0-9][0-9][0-9][0-9]"
+        )
+    )
     if not before_dirs:
         raise RuntimeError("No Level 1 states found. Run collect_level1.py first.")
+    split = config.scene_split(backend.scene_id)
+    allowed_regimes = list(config.level2_regimes_by_split.get(split, []))
+    selected_regimes = list(regimes) if regimes is not None else allowed_regimes
+    if not set(selected_regimes).issubset(allowed_regimes):
+        raise ValueError(
+            f"Regimes {selected_regimes} are not allowed for split {split}; "
+            f"expected a subset of {allowed_regimes}"
+        )
+    slots = (
+        int(config.num_edits_per_state)
+        if num_edits_per_state is None
+        else int(num_edits_per_state)
+    )
+    if slots < 0:
+        raise ValueError("num_edits_per_state cannot be negative")
+
     intervention_dir = root / "interventions" / backend.scene_id
     intervention_dir.mkdir(parents=True, exist_ok=True)
     saved = []
-    edit_index = len(list(intervention_dir.glob("edit_*.json"))) + 1
+    resumed = 0
+    recovered = 0
+    failures = Counter()
     for before_dir in before_dirs:
-        if len(saved) >= num_edits:
-            break
         before = load_world_state(before_dir)
-        if edit_type == "robot_translate":
-            edit = Intervention("robot_translate", "robot_02", {"reference_frame": "target_local", "forward_m": 1.0})
-        elif edit_type == "robot_rotate":
-            edit = Intervention("robot_rotate", "robot_02", {"delta_yaw_rad": float(np.pi / 3.0)})
-        elif edit_type == "object_remove":
-            if not before.objects:
-                continue
-            edit = Intervention("object_remove", before.objects[0].instance_id, {})
-        elif edit_type == "object_place_relative":
-            if not before.objects:
-                continue
-            edit = Intervention("object_place_relative", before.objects[0].instance_id, {"reference_id": "robot_01", "relation": "front", "distance_m": 1.0})
-        elif edit_type == "object_translate":
-            if not before.objects:
-                continue
-            edit = Intervention("object_translate", before.objects[0].instance_id, {"reference_frame": "world", "displacement_m": [0.5, 0.0, 0.0]})
-        else:
-            raise ValueError(f"Unsupported edit type: {edit_type}")
-        after = apply_intervention(before, edit, f"state_after_{edit_index:06d}")
-        try:
-            if edit.type.startswith("robot_"):
-                validate_robot_edit(backend, before, after, edit)
-            elif edit.type.startswith("object_"):
-                validate_object_edit(backend, after, edit.target_id)
-        except ValueError:
-            continue  # Reject exact invalid targets; never snap or shorten them.
-        after_dir = root / "scenes" / backend.scene_id / "states" / after.state_id
-        save_rendered_state(backend, after, after_dir)
-        instruction = canonical_instruction(edit, before)
-        edit_path = intervention_dir / f"edit_{edit_index:06d}.json"
-        write_json(edit_path, {
-            "schema_version": "0.1.0", "edit_id": f"edit_{edit_index:06d}", "scene_id": backend.scene_id,
-            "before_state_id": before.state_id, "before_state_path": str(before_dir.relative_to(root)),
-            "after_state_id": after.state_id, "after_state_path": str(after_dir.relative_to(root)),
-            "structured_intervention": edit.to_dict(), "instruction": instruction,
-            "instruction_paraphrases": [], "mllm_generated": False, "human_verified": False,
-            "visibility_transition": visibility_transition(before, after, edit.target_id),
-        })
-        before_after_contact_sheet(before_dir, after_dir, instruction).save(intervention_dir / f"edit_{edit_index:06d}_contact_sheet.png")
-        saved.append(edit_path)
-        edit_index += 1
-    if len(saved) < num_edits:
-        raise RuntimeError(f"Only {len(saved)}/{num_edits} exact {edit_type} interventions were valid; rejected without snapping")
+        for regime in selected_regimes:
+            accepted_keys = set()
+            for slot in range(1, slots + 1):
+                edit_id, after_state_id = _edit_identifiers(
+                    before.state_id, regime, slot
+                )
+                edit_path = intervention_dir / f"{edit_id}.json"
+                after_dir = (
+                    root
+                    / "scenes"
+                    / backend.scene_id
+                    / "states"
+                    / after_state_id
+                )
+                if edit_path.exists() and after_dir.exists():
+                    if not config.resume or not state_directory_complete(after_dir):
+                        raise RuntimeError(
+                            f"Cannot resume inconsistent Level-2 slot {edit_id}"
+                        )
+                    resumed += 1
+                    with edit_path.open("r", encoding="utf-8") as handle:
+                        import json
+                        accepted_keys.add(
+                            intervention_key(
+                                Intervention.from_dict(
+                                    json.load(handle)["structured_intervention"]
+                                )
+                            )
+                        )
+                    continue
+                if edit_path.exists() and not after_dir.exists():
+                    raise RuntimeError(
+                        f"Edit metadata exists but after-state is missing: {edit_path}"
+                    )
+                if after_dir.exists():
+                    if not config.resume:
+                        raise FileExistsError(after_dir)
+                    recovered_edit = _recover_edit_record(
+                        edit_path,
+                        root,
+                        before_dir,
+                        after_dir,
+                        before,
+                        config,
+                        regime,
+                        slot,
+                        edit_type,
+                    )
+                    accepted_keys.add(intervention_key(recovered_edit))
+                    recovered += 1
+                    saved.append(edit_path)
+                    continue
+
+                last_error = None
+                for attempt in range(int(config.max_intervention_sampling_attempts)):
+                    try:
+                        edit, seed = _sampling_candidate(
+                            before, config, regime, slot, attempt, edit_type
+                        )
+                        key = intervention_key(edit)
+                        if key in accepted_keys:
+                            raise ValueError(
+                                "Duplicate intervention candidate within state/regime"
+                            )
+                        after = apply_intervention(before, edit, after_state_id)
+                        _validate_edit(backend, before, after, edit)
+                        save_rendered_state(backend, after, after_dir)
+                        _write_edit_record(
+                            edit_path,
+                            root,
+                            before_dir,
+                            after_dir,
+                            before,
+                            after,
+                            edit,
+                            config,
+                            regime,
+                            slot,
+                            seed,
+                            attempt,
+                        )
+                        if config.save_visualizations:
+                            instruction = canonical_instruction(edit, before)
+                            before_after_contact_sheet(
+                                before_dir, after_dir, instruction
+                            ).save(intervention_dir / f"{edit_id}_contact_sheet.png")
+                        accepted_keys.add(key)
+                        saved.append(edit_path)
+                        break
+                    except (KeyError, RuntimeError, ValueError) as exc:
+                        last_error = exc
+                        message = f"{type(exc).__name__}: {exc}"
+                        failures[message[:500]] += 1
+                else:
+                    raise RuntimeError(
+                        f"Could not generate valid {regime} slot {slot} for "
+                        f"{before.state_id} after "
+                        f"{config.max_intervention_sampling_attempts} attempts: "
+                        f"{last_error}"
+                    ) from last_error
+
+    write_json(
+        intervention_dir / "level2_collection_status.json",
+        {
+            "scene_id": backend.scene_id,
+            "split": split,
+            "regimes": selected_regimes,
+            "factual_states": len(before_dirs),
+            "target_edits_per_state_per_regime": slots,
+            "new_edits": len(saved),
+            "resumed_edits": resumed,
+            "recovered_edits": recovered,
+            "rejections": sum(failures.values()),
+            "rejection_reasons": dict(failures.most_common()),
+            "complete": len(saved) + resumed
+            == len(before_dirs) * len(selected_regimes) * slots,
+        },
+    )
     update_dataset_index(root)
     return saved

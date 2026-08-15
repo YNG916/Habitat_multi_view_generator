@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -10,6 +11,7 @@ from PIL import Image
 
 from .bev import BevMapping
 from .coordinates import forward_from_quaternion, yaw_to_quaternion_xyzw
+from .serialization import load_numeric
 from .state_io import read_json
 
 
@@ -91,6 +93,16 @@ def validate_state_dir(
         camera = np.asarray(robot["camera_position_world"], dtype=np.float64)
         if not math.isclose(camera[1] - base[1], robot["camera_height_m"], abs_tol=tolerance):
             errors.append(f"{robot_id}: camera height mismatch")
+        proxy_match = re.search(
+            r"_h(\d{3})\.object_config\.json$",
+            robot.get("proxy_asset_handle", ""),
+        )
+        if proxy_match is not None:
+            proxy_height = int(proxy_match.group(1)) / 100.0
+            if not math.isclose(
+                proxy_height, float(robot["camera_height_m"]), abs_tol=1e-9
+            ):
+                errors.append(f"{robot_id}: proxy mast/camera height mismatch")
         robot_world = _matrix(robot, "T_world_from_robot")
         habitat_world = _matrix(robot, "T_world_from_camera_habitat")
         habitat_inverse = _matrix(robot, "T_camera_habitat_from_world")
@@ -120,7 +132,7 @@ def validate_state_dir(
         files = robot["files"]
         try:
             rgb = np.asarray(Image.open(state_dir / files["rgb"]))
-            depth = np.load(state_dir / files["depth"])
+            depth = load_numeric(state_dir / files["depth"])
             if rgb.shape[:2] != expected_shape or rgb.dtype != np.uint8:
                 errors.append(f"{robot_id}: invalid RGB shape/dtype {rgb.shape}/{rgb.dtype}")
             if depth.shape != expected_shape or depth.dtype != np.float32:
@@ -128,9 +140,16 @@ def validate_state_dir(
             if np.isnan(depth).any():
                 errors.append(f"{robot_id}: depth contains NaN")
             if "instance" in files:
-                instance = np.load(state_dir / files["instance"])
+                instance = load_numeric(state_dir / files["instance"])
                 if instance.shape != expected_shape:
                     errors.append(f"{robot_id}: invalid instance shape")
+            if "semantic" in files:
+                semantic = load_numeric(state_dir / files["semantic"])
+                if semantic.shape != expected_shape or semantic.dtype != np.uint16:
+                    errors.append(
+                        f"{robot_id}: invalid semantic shape/dtype "
+                        f"{semantic.shape}/{semantic.dtype}"
+                    )
         except Exception as exc:
             errors.append(f"{robot_id}: referenced observation failed: {exc}")
     for i, first in enumerate(metadata["robots"]):
@@ -143,14 +162,30 @@ def validate_state_dir(
                 errors.append(f"robot separation {distance:.3f} m is below {minimum_separation_m:.3f} m")
     for key, expected_dtype in [("height", np.float32), ("occupancy", np.uint8)]:
         try:
-            array = np.load(state_dir / bev["files"][key])
+            array = load_numeric(state_dir / bev["files"][key])
             if array.shape != (mapping.height, mapping.width) or array.dtype != expected_dtype:
                 errors.append(f"BEV {key}: invalid shape/dtype {array.shape}/{array.dtype}")
         except Exception as exc:
             errors.append(f"BEV {key}: {exc}")
+    if "semantic" in bev["files"]:
+        try:
+            bev_semantic = load_numeric(state_dir / bev["files"]["semantic"])
+            if (
+                bev_semantic.shape != (mapping.height, mapping.width)
+                or bev_semantic.dtype != np.uint16
+            ):
+                errors.append("BEV semantic: invalid shape/dtype")
+            if bev.get("semantic_encoding") != "controlled_entity_category_id":
+                errors.append("BEV semantic encoding is not declared")
+            allowed = {0, *map(int, bev.get("semantic_category_ids", {}).values())}
+            unexpected = set(map(int, np.unique(bev_semantic))) - allowed
+            if unexpected:
+                errors.append(f"BEV semantic: unknown category IDs {sorted(unexpected)}")
+        except Exception as exc:
+            errors.append(f"BEV semantic: {exc}")
     if "instance" in bev["files"]:
         try:
-            bev_instance = np.load(state_dir / bev["files"]["instance"])
+            bev_instance = load_numeric(state_dir / bev["files"]["instance"])
             if bev_instance.shape != (mapping.height, mapping.width):
                 errors.append("BEV instance: invalid shape")
             if bev.get("instance_id_encoding") != "Habitat SemanticSensorTarget.OBJECT_ID":
@@ -186,29 +221,148 @@ def validate_state_dir(
         objects = read_json(objects_path)
         for obj in objects:
             if obj["active"] and obj.get("bbox"):
-                bottom = float(obj["bbox"]["min_world"][1])
-                if abs(bottom - metadata["floor_y"]) > 0.08:
-                    errors.append(f"{obj['instance_id']}: unsupported/floor intersection ({bottom:.3f})")
+                low = np.asarray(obj["bbox"]["min_world"], dtype=np.float64)
+                high = np.asarray(obj["bbox"]["max_world"], dtype=np.float64)
+                if (
+                    low.shape != (3,)
+                    or high.shape != (3,)
+                    or not np.all(np.isfinite(low))
+                    or not np.all(np.isfinite(high))
+                    or np.any(low > high)
+                ):
+                    errors.append(f"{obj['instance_id']}: invalid world-space bbox")
     except Exception as exc:
         errors.append(f"objects metadata: {exc}")
     return errors
+
+
+def validate_dataset_manifest(root: Path, config=None) -> List[str]:
+    root = Path(root)
+    errors = []
+    try:
+        dataset = read_json(root / "dataset.json")
+    except Exception as exc:
+        return [f"cannot read dataset.json: {exc}"]
+    disk_states = {
+        str(path.parent.relative_to(root))
+        for path in root.glob("scenes/*/states/*/state.json")
+    }
+    disk_edits = {
+        str(path.relative_to(root))
+        for path in root.glob("interventions/*/edit_*.json")
+    }
+    indexed_states = set(dataset.get("states", []))
+    indexed_edits = set(dataset.get("interventions", []))
+    if indexed_states != disk_states:
+        errors.append("dataset.json state index does not match published state directories")
+    if indexed_edits != disk_edits:
+        errors.append("dataset.json intervention index does not match published edits")
+    if config is not None:
+        fingerprint = dataset.get("generation_fingerprint")
+        if fingerprint and fingerprint != config.generation_fingerprint():
+            errors.append("generation config fingerprint mismatch")
+        if config.run_multilevel_calibration_preflight:
+            calibration_path = root / "calibration_report.json"
+            if not calibration_path.exists():
+                errors.append("missing multi-height orthographic calibration report")
+            else:
+                calibration = read_json(calibration_path)
+                if not calibration.get("passed"):
+                    errors.append("multi-height orthographic calibration did not pass")
+
+    split_state_sets = []
+    split_after_sets = []
+    split_edit_sets = []
+    for split in ("train", "val", "test"):
+        path = root / f"splits/{split}.json"
+        if not path.exists():
+            errors.append(f"missing split manifest: {path.relative_to(root)}")
+            continue
+        payload = read_json(path)
+        split_state_sets.append(set(payload.get("states", [])))
+        split_after_sets.append(set(payload.get("after_states", [])))
+        split_edit_sets.append(set(payload.get("interventions", [])))
+        if config is not None:
+            expected_families = {
+                scene for scene in config.scene_splits[split]
+            }
+            actual_families = set(payload.get("layout_families", []))
+            if not actual_families.issubset(expected_families):
+                errors.append(f"{split} contains a layout family assigned elsewhere")
+        for regime, regime_payload in payload.get("level2_by_regime", {}).items():
+            regime_path = root / f"splits/level2_{split}_{regime}.json"
+            if not regime_path.exists():
+                errors.append(f"missing regime manifest: {regime_path.relative_to(root)}")
+                continue
+            standalone = read_json(regime_path)
+            if set(standalone.get("interventions", [])) != set(
+                regime_payload.get("interventions", [])
+            ):
+                errors.append(f"{split}/{regime} standalone manifest disagrees with split")
+
+    for name, collections in (
+        ("factual states", split_state_sets),
+        ("after states", split_after_sets),
+        ("interventions", split_edit_sets),
+    ):
+        for index, first in enumerate(collections):
+            for second in collections[index + 1 :]:
+                if first & second:
+                    errors.append(f"{name} leak across train/val/test")
+    if split_state_sets and set().union(*split_state_sets) != set(
+        dataset.get("factual_states", [])
+    ):
+        errors.append("Level-1 split union does not equal factual_states")
+    if split_after_sets and set().union(*split_after_sets) != set(
+        dataset.get("intervention_derived_states", [])
+    ):
+        errors.append("Level-2 after-state split union does not equal derived states")
+    if split_edit_sets and set().union(*split_edit_sets) != indexed_edits:
+        errors.append("Level-2 split union does not equal interventions")
+    return errors
+
+
+def _regime_parameter_value(intervention) -> tuple:
+    parameters = intervention.parameters
+    if intervention.type == "robot_translate":
+        return "robot_translate_m", abs(float(parameters["forward_m"]))
+    if intervention.type == "robot_rotate":
+        return "robot_rotate_deg", float(math.degrees(parameters["delta_yaw_rad"]))
+    if intervention.type == "object_place_relative":
+        return "object_place_relative_m", abs(float(parameters["distance_m"]))
+    if intervention.type == "object_translate":
+        displacement = np.asarray(parameters["displacement_m"], dtype=np.float64)
+        return "object_translate_m", float(np.linalg.norm(displacement[[0, 2]]))
+    return None, None
 
 
 def validate_dataset(root: Path, config=None) -> Dict[str, object]:
     root = Path(root)
     state_paths = sorted(root.glob("scenes/*/states/*/state.json"))
     report: Dict[str, object] = {"root": str(root), "states_checked": len(state_paths), "errors": {}}
-    backends = {}
-    try:
-        if config is not None:
+    manifest_errors = validate_dataset_manifest(root, config)
+    if manifest_errors:
+        report["errors"]["_manifest"] = manifest_errors
+    active_backend = None
+    active_scene = None
+
+    def backend_for_scene(scene_id: str):
+        nonlocal active_backend, active_scene
+        if config is None:
+            return None
+        if active_scene != scene_id:
+            if active_backend is not None:
+                active_backend.close()
             from .habitat_backend import HabitatBackend
-            for path in state_paths:
-                scene_id = path.parents[2].name
-                if scene_id not in backends:
-                    backends[scene_id] = HabitatBackend(config, scene_id)
+            active_backend = HabitatBackend(config, scene_id)
+            active_scene = scene_id
+        return active_backend
+
+    try:
         for state_json in state_paths:
             scene_id = state_json.parents[2].name
-            pathfinder = backends[scene_id].sim.pathfinder if scene_id in backends else None
+            backend = backend_for_scene(scene_id)
+            pathfinder = backend.sim.pathfinder if backend is not None else None
             errors = validate_state_dir(
                 state_json.parent,
                 pathfinder,
@@ -221,7 +375,7 @@ def validate_dataset(root: Path, config=None) -> Dict[str, object]:
             if config is not None:
                 from .state_io import load_world_state
                 world_state = load_world_state(state_json.parent)
-                backend = backends[scene_id]
+                backend = backend_for_scene(scene_id)
                 for obj in world_state.objects:
                     if not obj.active:
                         continue
@@ -275,6 +429,28 @@ def validate_dataset(root: Path, config=None) -> Dict[str, object]:
                 after = load_world_state(root / edit["after_state_path"])
                 intervention = Intervention.from_dict(edit["structured_intervention"])
                 expected_instruction = canonical_instruction(intervention, before)
+                if config is not None:
+                    expected_split = config.scene_split(edit["scene_id"])
+                    regime = edit.get("benchmark_regime")
+                    if edit.get("split") != expected_split:
+                        edit_errors.append("edit split does not match scene-level split")
+                    if regime not in config.level2_regimes_by_split[expected_split]:
+                        edit_errors.append("edit regime is not allowed for its split")
+                    else:
+                        domain_key, value = _regime_parameter_value(intervention)
+                        if domain_key is not None and not any(
+                            math.isclose(value, float(candidate), abs_tol=1e-8)
+                            for candidate in config.intervention_regimes[regime][domain_key]
+                        ):
+                            edit_errors.append(
+                                f"intervention value {value} is outside {regime}/{domain_key}"
+                            )
+                    if int(edit.get("target_visible_observers_before", -1)) < int(
+                        config.min_target_visible_observers
+                    ):
+                        edit_errors.append(
+                            "intervention target does not meet benchmark visibility gate"
+                        )
                 if edit.get("instruction") != expected_instruction:
                     edit_errors.append(
                         "canonical instruction is not equivalent to structured intervention"
@@ -282,7 +458,7 @@ def validate_dataset(root: Path, config=None) -> Dict[str, object]:
 
                 if intervention.type == "robot_translate":
                     if config is not None:
-                        backend = backends[edit["scene_id"]]
+                        backend = backend_for_scene(edit["scene_id"])
                         validate_robot_translation(
                             before,
                             after,
@@ -290,6 +466,7 @@ def validate_dataset(root: Path, config=None) -> Dict[str, object]:
                             backend.sim.pathfinder,
                             config.floor_tolerance_m,
                             config.min_inter_robot_distance_m,
+                            config.controlled_object_min_separation_m,
                         )
                         robot = after.robot(intervention.target_id)
                         nav_target = np.asarray(
@@ -346,7 +523,7 @@ def validate_dataset(root: Path, config=None) -> Dict[str, object]:
             if edit_errors:
                 report["errors"].setdefault(relative_edit, []).extend(edit_errors)
     finally:
-        for backend in backends.values():
-            backend.close()
+        if active_backend is not None:
+            active_backend.close()
     report["passed"] = not report["errors"] and bool(state_paths)
     return report

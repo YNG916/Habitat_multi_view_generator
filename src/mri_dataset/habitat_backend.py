@@ -9,7 +9,12 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 
 from .bev import BevMapping, habitat_orthographic_depth_to_metric, occupancy_from_pathfinder
-from .coordinates import forward_from_quaternion, transform_matrix, yaw_to_quaternion_xyzw
+from .coordinates import (
+    camera_transforms,
+    forward_from_quaternion,
+    transform_matrix,
+    yaw_to_quaternion_xyzw,
+)
 from .objects import aabb_dict, handles_by_suffix
 from .world_state import ObjectState, WorldState
 
@@ -467,6 +472,26 @@ class HabitatBackend:
     def object_collision_free(self, state: WorldState, target_id: str) -> bool:
         return bool(self.object_collision_report(state, target_id)["collision_free"])
 
+    def _semantic_from_instance(self, instance: Optional[np.ndarray], state: WorldState):
+        if instance is None or not self.config.enable_semantic:
+            return None
+        semantic = np.zeros(instance.shape, dtype=np.uint16)
+        for robot in state.robots:
+            runtime = self.render_ids.get(robot.robot_id)
+            if runtime is not None:
+                semantic[instance == runtime[0]] = int(
+                    self.config.semantic_category_ids["robot"]
+                )
+        for obj in state.objects:
+            if not obj.active:
+                continue
+            runtime = self.render_ids.get(obj.instance_id)
+            if runtime is not None:
+                semantic[instance == runtime[0]] = int(
+                    self.config.semantic_category_ids[obj.category]
+                )
+        return semantic
+
     def render(self, state: WorldState) -> dict:
         self.apply_world_state(state)
         self.refresh_object_bboxes(state)
@@ -480,7 +505,12 @@ class HabitatBackend:
             instance = None
             if self.config.enable_instance:
                 instance = np.asarray(observation[f"robot_{index:02d}_instance"], dtype=np.int32)
-            robots[robot.robot_id] = {"rgb": rgb, "depth": depth, "instance": instance}
+            robots[robot.robot_id] = {
+                "rgb": rgb,
+                "depth": depth,
+                "instance": instance,
+                "semantic": self._semantic_from_instance(instance, state),
+            }
         bev_obs = observations[self.config.num_robots]
         bev_rgb = np.asarray(bev_obs["bev_rgb"])[..., :3].astype(np.uint8)
         bev_depth = np.asarray(bev_obs["bev_depth"], dtype=np.float32)
@@ -509,6 +539,7 @@ class HabitatBackend:
             "bev_depth": bev_depth,
             "bev_metric_depth": metric_bev_depth,
             "bev_instance": bev_instance,
+            "bev_semantic": self._semantic_from_instance(bev_instance, state),
             "entity_object_ids": {key: value[0] for key, value in self.render_ids.items()},
             "height": height,
             "occupancy": occupancy,
@@ -564,6 +595,85 @@ class HabitatBackend:
             "depth_convention": "pinhole camera Z-depth; center pixel equals forward-ray distance",
             "records": records,
             "max_absolute_error_m": max(finite_errors) if finite_errors else None,
+        }
+
+    def validate_pinhole_depth_grid(self, state: WorldState, robot_outputs: dict) -> dict:
+        """Validate off-center Z-depth and pixel-center convention with Bullet rays."""
+        records = []
+        fractions = (0.25, 0.5, 0.75)
+        for robot in state.robots:
+            depth = robot_outputs[robot.robot_id]["depth"]
+            instance = robot_outputs[robot.robot_id].get("instance")
+            intrinsics = robot.camera.intrinsics
+            world_from_cv = camera_transforms(
+                robot.camera.position_world,
+                robot.camera.quaternion_world_xyzw,
+            )["T_world_from_camera_cv"]
+            for row_fraction in fractions:
+                for col_fraction in fractions:
+                    row = min(depth.shape[0] - 1, int(row_fraction * depth.shape[0]))
+                    col = min(depth.shape[1] - 1, int(col_fraction * depth.shape[1]))
+                    direction_cv = np.array(
+                        [
+                            (col - float(intrinsics["cx"])) / float(intrinsics["fx"]),
+                            (row - float(intrinsics["cy"])) / float(intrinsics["fy"]),
+                            1.0,
+                        ],
+                        dtype=np.float64,
+                    )
+                    ray_scale = float(np.linalg.norm(direction_cv))
+                    direction_world = world_from_cv[:3, :3] @ (
+                        direction_cv / ray_scale
+                    )
+                    ray = self.habitat_sim.geo.Ray(
+                        np.asarray(robot.camera.position_world, dtype=np.float32),
+                        direction_world.astype(np.float32),
+                    )
+                    result = self.sim.cast_ray(
+                        ray,
+                        max_distance=float(self.config.far),
+                        buffer_distance=0.0,
+                    )
+                    if not result.has_hits():
+                        continue
+                    hit = result.hits[0]
+                    # Static stage geometry is the only stable render/collision
+                    # oracle across ReplicaCAD's optional furniture proxies.
+                    if int(hit.object_id) != int(self.habitat_sim.stage_id):
+                        continue
+                    if (
+                        instance is not None
+                        and int(instance[row, col]) != int(self.habitat_sim.stage_id)
+                    ):
+                        continue
+                    expected_z = float(hit.ray_distance) / ray_scale
+                    saved_z = float(depth[row, col])
+                    if not math.isfinite(saved_z) or saved_z <= 0.0:
+                        continue
+                    records.append(
+                        {
+                            "robot_id": robot.robot_id,
+                            "pixel_rc": [int(row), int(col)],
+                            "saved_z_depth_m": saved_z,
+                            "bullet_stage_z_depth_m": expected_z,
+                            "absolute_error_m": abs(saved_z - expected_z),
+                        }
+                    )
+        errors = [record["absolute_error_m"] for record in records]
+        return {
+            "available": bool(records),
+            "sample_count": len(records),
+            "pixel_coordinate_convention": (
+                "integer pixel centers with cx=width/2, cy=height/2"
+            ),
+            "validation_scope": "3x3 off-center grid; first Bullet hit is static stage",
+            "mean_abs_error_m": float(np.mean(errors)) if errors else None,
+            "median_abs_error_m": float(np.median(errors)) if errors else None,
+            "p90_abs_error_m": (
+                float(np.percentile(errors, 90)) if errors else None
+            ),
+            "max_abs_error_m": float(np.max(errors)) if errors else None,
+            "records": records,
         }
 
     def validate_height_rays(self, state: WorldState, height_map: np.ndarray, samples: int = 12, seed: int = 0) -> dict:
