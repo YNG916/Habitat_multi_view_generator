@@ -1,4 +1,5 @@
 outputs/
+outputs_replica_cad/
 
 # External/local scene data
 data/

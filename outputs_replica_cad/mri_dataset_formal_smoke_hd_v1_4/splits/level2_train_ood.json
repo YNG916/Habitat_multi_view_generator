@@ -1,8 +1,0 @@
-{
-  "schema_version": "1.0.0",
-  "split": "train",
-  "benchmark_regime": "ood",
-  "after_states": [],
-  "interventions": [],
-  "pairs": []
-}
