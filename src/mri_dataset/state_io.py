@@ -46,7 +46,11 @@ def load_world_state(state_dir: Path) -> WorldState:
         intervention=metadata.get("intervention") or {},
         geometry_validation=metadata.get("geometry_validation") or {},
         dataset_source=metadata.get("dataset_source", "hssd"),
-        floor_id=metadata.get("floor_id", "floor_00"),
+        floor_id=metadata.get("floor_id","floor_00"),
+        region_id=metadata.get("region_id",""),region_category=metadata.get("region_category",""),
+        bev_scope=metadata.get("bev_scope","semantic_region"),
+        region_context_margin_m=metadata.get("region_context_margin_m",0.0),
+        robot_pair_distances=metadata.get("robot_pair_distances",[]),
     )
 
 

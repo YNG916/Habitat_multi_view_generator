@@ -13,8 +13,12 @@ from .coordinates import (
     transform_matrix,
     yaw_to_quaternion_xyzw,
 )
-from .objects import aabb_dict, handles_by_suffix
+from .objects import (
+    aabb_dict, handles_by_suffix, resolve_canonical_templates,
+)
 from .world_state import ObjectState, WorldState
+from .regions import point_in_polygon_xz, region_mask
+from .scene_registry import sha256_file
 
 
 class HabitatBackend:
@@ -25,7 +29,7 @@ class HabitatBackend:
     never removed or serialized as a controlled object.
     """
 
-    def __init__(self, config, scene_spec, floor_spec=None):
+    def __init__(self, config, scene_spec, floor_spec=None, region_spec=None):
         import habitat_sim
         from .hssd_preprocess import (
             navmesh_settings_dict,
@@ -47,8 +51,17 @@ class HabitatBackend:
             floor_spec = floors[0]
         if floor_spec not in scene_spec.floors or not floor_spec.eligible:
             raise ValueError("Backend requires an eligible registered HSSD floor")
-        self.scene_spec = scene_spec
-        self.floor_spec = floor_spec
+        if region_spec is None:
+            regions=floor_spec.eligible_regions
+            if len(regions)!=1: raise ValueError("region_id must be selected explicitly")
+            region_spec=regions[0]
+        if region_spec not in floor_spec.regions or not region_spec.eligible:
+            raise ValueError("Backend requires an eligible registered HSSD semantic region")
+        self.scene_spec=scene_spec
+        self.floor_spec=floor_spec
+        self.region_spec=region_spec
+        self.region_id=region_spec.region_id
+        self.region_category=region_spec.region_category
         self.scene_id = scene_spec.scene_id
         self.floor_id = floor_spec.floor_id
         self.navmesh_path = config.resolve(scene_spec.cached_navmesh_path)
@@ -67,12 +80,12 @@ class HabitatBackend:
             raise ValueError(f"Cached NavMesh hash mismatch for {self.scene_id}")
 
         self.navmesh_bounds = (
-            np.asarray(floor_spec.navigable_bounds_world[0], dtype=np.float64),
-            np.asarray(floor_spec.navigable_bounds_world[1], dtype=np.float64),
+            np.asarray(region_spec.navigable_bounds_world[0], dtype=np.float64),
+            np.asarray(region_spec.navigable_bounds_world[1], dtype=np.float64),
         )
         self.render_bev_bounds = (
-            np.asarray(floor_spec.visual_bev_bounds_world[0], dtype=np.float64),
-            np.asarray(floor_spec.visual_bev_bounds_world[1], dtype=np.float64),
+            np.asarray(region_spec.visual_bev_bounds_world[0], dtype=np.float64),
+            np.asarray(region_spec.visual_bev_bounds_world[1], dtype=np.float64),
         )
         self.scene_bounds = (
             np.asarray(scene_spec.rendered_scene_aabb[0], dtype=np.float64),
@@ -87,7 +100,7 @@ class HabitatBackend:
         if not self.sim.pathfinder.load_nav_mesh(str(self.navmesh_path)):
             self.close()
             raise RuntimeError(f"Could not load cached HSSD NavMesh: {self.navmesh_path}")
-        missing_islands = set(floor_spec.allowed_island_ids) - set(
+        missing_islands = set(region_spec.allowed_island_ids) - set(
             range(int(self.sim.pathfinder.num_islands))
         )
         if missing_islands:
@@ -102,6 +115,13 @@ class HabitatBackend:
         self._load_proxy_templates()
         self._validate_proxy_dimensions()
         self.controlled_handles = self._resolve_controlled_handles()
+        self._controlled_identifiers = {
+            handle: canonical
+            for category, handles in self.controlled_handles.items()
+            for canonical, handle in zip(
+                self.config.controlled_object_pools[category], handles
+            )
+        }
 
     def _sensor(self, uuid, sensor_type, subtype, resolution, near, far):
         spec = self.habitat_sim.CameraSensorSpec()
@@ -227,15 +247,30 @@ class HabitatBackend:
             finally:
                 manager.remove_object_by_id(rigid.object_id)
 
-    def _resolve_controlled_handles(self) -> Dict[str, str]:
-        manager = self.sim.get_object_template_manager()
-        result = {}
-        for category, handle in self.config.controlled_object_whitelist.items():
-            if not manager.get_library_has_handle(handle):
-                raise KeyError(
-                    f"HSSD exact template handle is unavailable for {category}: {handle}"
-                )
-            result[category] = handle
+    def _resolve_controlled_handles(self) -> Dict[str, List[str]]:
+        manager=self.sim.get_object_template_manager()
+        dataset_root=self.config.dataset_config_path.resolve().parent
+        canonical_ids=[
+            canonical
+            for values in self.config.controlled_object_pools.values()
+            for canonical in values
+        ]
+        resolved=resolve_canonical_templates(
+            manager.get_template_handles(),dataset_root,canonical_ids
+        )
+        result={}
+        for category,category_ids in self.config.controlled_object_pools.items():
+            result[category]=[]
+            for canonical in category_ids:
+                source_path=dataset_root/canonical
+                if not source_path.is_file():
+                    raise FileNotFoundError(f"Approved HSSD asset is missing: {canonical}")
+                expected=self.config.controlled_object_asset_hashes.get(canonical)
+                if not expected or sha256_file(source_path)!=expected:
+                    raise ValueError(
+                        f"Approved HSSD asset fingerprint mismatch: {canonical}"
+                    )
+                result[category].append(resolved[canonical])
         return result
 
     def resolve_proxy_handle(self, config_path: str) -> str:
@@ -310,13 +345,13 @@ class HabitatBackend:
             raise ValueError(
                 f"WorldState floor Y does not match {self.scene_id}/{self.floor_id}"
             )
-        return float(self.floor_spec.bev_camera_height_m)
+        return float(self.region_spec.bev_camera_height_m)
 
     def apply_world_state(self, state: WorldState) -> None:
         if state.dataset_source != "hssd" or state.scene_id != self.scene_id:
             raise ValueError("WorldState does not belong to this HSSD scene")
-        if state.floor_id != self.floor_id:
-            raise ValueError("WorldState floor_id does not match the selected backend floor")
+        if state.floor_id != self.floor_id: raise ValueError("WorldState floor mismatch")
+        if state.region_id != self.region_id: raise ValueError("WorldState semantic region mismatch")
         self._clear_spawned()
         for index, robot in enumerate(state.robots):
             robot.synchronize_camera()
@@ -349,10 +384,10 @@ class HabitatBackend:
         bev_state.rotation = quat_from_angle_axis(-math.pi / 2.0, np.array([1.0, 0.0, 0.0]))
         self.sim.get_agent(self.config.num_robots).set_state(bev_state, infer_sensor_states=True)
 
-    def create_object_state(self, category: str, x: float, z: float, floor_y: float, instance_index: int) -> ObjectState:
-        if category not in self.controlled_handles:
-            raise KeyError(f"Controlled category not in curated whitelist: {category}")
-        handle = self.controlled_handles[category]
+    def create_object_state(self, category: str, asset_handle: str, x: float, z: float, floor_y: float, instance_index: int) -> ObjectState:
+        if category not in self.controlled_handles or asset_handle not in self.controlled_handles[category]:
+            raise KeyError(f"Asset is not approved for category {category}: {asset_handle}")
+        handle=asset_handle
         manager = self.sim.get_rigid_object_manager()
         obj = manager.add_object_by_template_handle(handle)
         if obj is None:
@@ -365,7 +400,8 @@ class HabitatBackend:
         manager.remove_object_by_id(obj.object_id)
         return ObjectState(
             instance_id=f"object_{instance_index:03d}", category=category,
-            asset_handle=self.config.controlled_object_whitelist[category],
+            asset_handle=handle,
+            asset_identifier=self._controlled_identifiers[handle],
             position_world=position.tolist(), quaternion_world_xyzw=[0.0, 0.0, 0.0, 1.0],
             active=True, movable=True, semantic_id=2000 + instance_index, bbox=bbox,
         )
@@ -382,6 +418,30 @@ class HabitatBackend:
                 rigid.collision_shape_aabb,
                 transform_matrix(obj_state.position_world, obj_state.quaternion_world_xyzw),
             )
+
+    def robot_pair_distance_records(self, state: WorldState) -> List[dict]:
+        records=[]
+        for index,first in enumerate(state.robots):
+            for second in state.robots[index+1:]:
+                start=np.asarray(first.base_position_world,dtype=np.float32)
+                end=np.asarray(second.base_position_world,dtype=np.float32)
+                query=self.habitat_sim.ShortestPath()
+                query.requested_start=start
+                query.requested_end=end
+                found=bool(self.sim.pathfinder.find_path(query))
+                euclidean=float(np.linalg.norm(
+                    start[[0,2]].astype(np.float64)-end[[0,2]].astype(np.float64)
+                ))
+                records.append({
+                    "robot_a":first.robot_id,"robot_b":second.robot_id,
+                    "euclidean_xz_m":euclidean,
+                    "geodesic_m":float(query.geodesic_distance) if found else None,
+                    "path_found":found,
+                })
+        return records
+
+    def point_in_region(self, point) -> bool:
+        return bool(point_in_polygon_xz(point,self.region_spec.semantic_polygon_world))
 
     def floor_surface_y(self, position_world) -> float:
         """Resolve physical floor Y below a same-floor NavMesh sample."""
@@ -589,8 +649,9 @@ class HabitatBackend:
                 self.sim.pathfinder,
                 self.mapping,
                 state.floor_y,
-                navmesh_bounds=self.navmesh_bounds,
-                allowed_island_ids=self.floor_spec.allowed_island_ids,
+                navmesh_bounds=self.sim.pathfinder.get_bounds(),
+                allowed_island_ids=self.region_spec.allowed_island_ids,
+                vertical_tolerance_m=float(self.config.floor_tolerance_m),
             )
         occupancy = self._occupancy_cache[floor_key]
         self._populate_visibility(state, robots)
@@ -604,6 +665,7 @@ class HabitatBackend:
             "entity_object_ids": {key: value[0] for key, value in self.render_ids.items()},
             "height": height,
             "occupancy": occupancy,
+            "region_mask": region_mask(self.mapping,self.region_spec.semantic_polygon_world),
         }
 
     def _populate_visibility(self, state: WorldState, robot_outputs: dict) -> None:
@@ -618,17 +680,24 @@ class HabitatBackend:
                 if instance is not None and render_object_id is not None:
                     count = int((instance == render_object_id).sum())
                 geometrically_visible = bool(count > 0)
-                benchmark_visible = bool(
-                    count >= int(self.config.benchmark_visibility_min_pixels)
+                image_area=int(instance.size) if instance is not None else int(self.config.width*self.config.height)
+                visible_fraction=float(count/image_area)
+                min_fraction=float(
+                    getattr(self.config,"benchmark_visibility_min_fraction",0.0)
                 )
+                threshold=max(
+                    int(self.config.benchmark_visibility_min_pixels),
+                    int(math.ceil(min_fraction*image_area)),
+                )
+                benchmark_visible=bool(count>=threshold)
                 entity.visibility[observer_id] = {
                     "visible": geometrically_visible,
                     "geometrically_visible": geometrically_visible,
                     "benchmark_visible": benchmark_visible,
-                    "benchmark_min_pixels": int(
-                        self.config.benchmark_visibility_min_pixels
-                    ),
-                    "visible_pixel_count": count,
+                    "benchmark_min_pixels":threshold,
+                    "benchmark_min_fraction":min_fraction,
+                    "visible_pixel_count":count,
+                    "visible_image_fraction":visible_fraction,
                     "method": "object_id_sensor" if instance is not None else "unavailable",
                 }
 

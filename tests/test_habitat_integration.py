@@ -26,12 +26,12 @@ class HabitatDatasetIndependentTests(unittest.TestCase):
 
 
 def hssd_ready():
-    registry=REPO_ROOT/"data/hssd_processed/scene_registry.json"
+    registry=REPO_ROOT/"data/hssd_processed/scene_registry_region_pilot_v3.json"
     objects=REPO_ROOT/"configs/hssd_controlled_objects.json"
     if not (HABITAT_AVAILABLE and registry.is_file() and objects.is_file()):
         return False
     try:
-        return bool(json.loads(objects.read_text()).get("selected_handles"))
+        return bool(json.loads(objects.read_text()).get("approved_assets"))
     except Exception:
         return False
 
@@ -45,8 +45,8 @@ class HSSDIntegrationTests(unittest.TestCase):
             width=96,height=96,bev_meters_per_pixel=.08,
             save_visualizations=False,height_validation_samples=32,
         )
-        cls.scene,cls.floor=cls.config.collection_specs()[0]
-        cls.backend=HabitatBackend(cls.config,cls.scene,cls.floor)
+        cls.scene,cls.floor,cls.region=cls.config.collection_specs()[0]
+        cls.backend=HabitatBackend(cls.config,cls.scene,cls.floor,cls.region)
 
     @classmethod
     def tearDownClass(cls): cls.backend.close()
@@ -55,9 +55,13 @@ class HSSDIntegrationTests(unittest.TestCase):
         state=make_world_state(self.backend,self.config,"hssd_integration",123)
         self.assertEqual(state.dataset_source,"hssd")
         self.assertEqual(state.floor_id,self.floor.floor_id)
+        self.assertEqual(state.region_id,self.region.region_id)
         outputs=self.backend.render(state)
         self.assertEqual(outputs["bev_semantic"].dtype,np.uint16)
         self.assertGreater(np.isfinite(outputs["bev_metric_depth"]).sum(),0)
+        self.assertEqual(set(map(int,np.unique(outputs["occupancy"]))),{0,1})
+        expected=((outputs["occupancy"]==1)&(outputs["region_mask"]==1))
+        self.assertGreater(int(expected.sum()),0)
         for robot in state.robots:
             support=self.backend.robot_support_report(state,robot.robot_id)
             self.assertAlmostEqual(support["support_gap_m"],0.,places=4)
@@ -65,7 +69,7 @@ class HSSDIntegrationTests(unittest.TestCase):
 
     def test_floor_local_sampling_and_cached_navmesh(self):
         state=make_world_state(self.backend,self.config,"hssd_floor",456)
-        allowed=set(self.floor.allowed_island_ids)
+        allowed=set(self.region.allowed_island_ids)
         for robot in state.robots:
             island=int(self.backend.sim.pathfinder.get_island(robot.base_position_world))
             self.assertIn(island,allowed)

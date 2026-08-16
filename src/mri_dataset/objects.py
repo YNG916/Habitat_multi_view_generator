@@ -7,6 +7,36 @@ import numpy as np
 from .world_state import ObjectState
 
 
+def is_decomposed_canonical_id(canonical_id: str) -> bool:
+    return "/decomposed/" in f"/{str(canonical_id).replace(chr(92),'/')}"
+
+
+def canonical_template_index(template_handles, dataset_root) -> Dict[str, List[str]]:
+    from pathlib import Path
+    root=Path(dataset_root).resolve()
+    result: Dict[str, List[str]]={}
+    for handle in template_handles:
+        try:
+            canonical=Path(handle).resolve().relative_to(root).as_posix()
+        except ValueError:
+            continue
+        result.setdefault(canonical,[]).append(handle)
+    return result
+
+
+def resolve_canonical_templates(template_handles, dataset_root, canonical_ids) -> Dict[str, str]:
+    index=canonical_template_index(template_handles,dataset_root)
+    result={}
+    for canonical in canonical_ids:
+        matches=index.get(str(canonical),[])
+        if len(matches)!=1:
+            raise KeyError(
+                f"Canonical HSSD asset {canonical} resolved to {len(matches)} handles"
+            )
+        result[str(canonical)]=matches[0]
+    return result
+
+
 def handles_by_suffix(template_manager, suffixes: Iterable[str]) -> Dict[str, str]:
     handles = template_manager.get_template_handles()
     resolved = {}

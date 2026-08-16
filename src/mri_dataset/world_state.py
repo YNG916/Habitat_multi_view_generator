@@ -161,6 +161,7 @@ class ObjectState:
     asset_handle: str
     position_world: List[float]
     quaternion_world_xyzw: List[float]
+    asset_identifier: str = ""
     active: bool = True
     movable: bool = True
     semantic_id: int = 0
@@ -191,6 +192,11 @@ class WorldState:
     geometry_validation: Dict[str, Any] = field(default_factory=dict)
     dataset_source: str = "hssd"
     floor_id: str = "floor_00"
+    region_id: str = ""
+    region_category: str = ""
+    bev_scope: str = "semantic_region"
+    region_context_margin_m: float = 0.0
+    robot_pair_distances: List[Dict[str, Any]] = field(default_factory=list)
 
     def robot(self, robot_id: str) -> RobotState:
         for robot in self.robots:
@@ -212,6 +218,11 @@ class WorldState:
             "dataset_source": self.dataset_source,
             "floor_id": self.floor_id,
             "floor_y": float(self.floor_y),
+            "region_id":self.region_id,
+            "region_category":self.region_category,
+            "bev_scope":self.bev_scope,
+            "region_context_margin_m":float(self.region_context_margin_m),
+            "robot_pair_distances":_lists(self.robot_pair_distances),
             "random_seed": int(self.random_seed),
             "state_origin": (
                 "intervention_derived" if self.parent_state_id else "factual"

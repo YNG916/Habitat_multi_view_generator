@@ -10,7 +10,10 @@ import numpy as np
 from PIL import Image
 
 from .bev import annotate_bev, compute_fov_overlap
-from .visualization import contact_sheet, depth_visualization
+from .visualization import (
+    contact_sheet, depth_visualization, height_visualization,
+    occupancy_visualization, region_overlay_visualization,
+)
 
 
 def write_json(path: Path, data) -> None:
@@ -72,7 +75,7 @@ def state_directory_complete(state_dir: Path) -> bool:
         return False
 
 
-def save_rendered_state(backend, state, state_dir: Path) -> Path:
+def save_rendered_state(backend, state, state_dir: Path, post_render_validator=None) -> Path:
     """Render and atomically publish one complete state directory."""
     state_dir = Path(state_dir)
     state_dir.parent.mkdir(parents=True, exist_ok=True)
@@ -83,6 +86,9 @@ def save_rendered_state(backend, state, state_dir: Path) -> Path:
         (temporary / "bev").mkdir()
         (temporary / "robots").mkdir()
         outputs = backend.render(state)
+        if post_render_validator is not None:
+            post_render_validator(state,outputs)
+        state.robot_pair_distances=backend.robot_pair_distance_records(state)
         mapping = backend.mapping
         if not state.parent_state_id:
             minimum = int(backend.config.min_target_visible_observers)
@@ -115,7 +121,10 @@ def save_rendered_state(backend, state, state_dir: Path) -> Path:
                 )
         clean_bev = Image.fromarray(outputs["bev_rgb"])
         clean_bev.save(temporary / "bev/rgb.png")
-        annotated = annotate_bev(outputs["bev_rgb"], mapping, state.robots, backend.config.hfov_deg)
+        overlay_bev=np.asarray(region_overlay_visualization(
+            outputs["bev_rgb"],outputs["region_mask"],outputs["occupancy"]
+        ))
+        annotated = annotate_bev(overlay_bev, mapping, state.robots, backend.config.hfov_deg)
         if backend.config.save_visualizations:
             annotated.save(temporary / "bev/annotated.png")
         height_file = save_numeric(
@@ -128,6 +137,30 @@ def save_rendered_state(backend, state, state_dir: Path) -> Path:
             outputs["occupancy"].astype(np.uint8),
             backend.config.compress_numeric_arrays,
         )
+        region_mask_file=save_numeric(
+            temporary/"bev/region_mask",outputs["region_mask"].astype(np.uint8),
+            backend.config.compress_numeric_arrays,
+        )
+        navigable_region_mask=(
+            (outputs["occupancy"]==1)&(outputs["region_mask"]==1)
+        ).astype(np.uint8)
+        navigable_region_file=save_numeric(
+            temporary/"bev/navigable_region_mask",navigable_region_mask,
+            backend.config.compress_numeric_arrays,
+        )
+        diagnostic_images=[]
+        if backend.config.save_visualizations:
+            region_mask_vis=Image.fromarray(
+                outputs["region_mask"].astype(np.uint8)*255,mode="L"
+            )
+            occupancy_vis=occupancy_visualization(
+                outputs["occupancy"],outputs["region_mask"]
+            )
+            height_vis=height_visualization(outputs["height"])
+            region_mask_vis.save(temporary/"bev/region_mask_vis.png")
+            occupancy_vis.save(temporary/"bev/occupancy_vis.png")
+            height_vis.save(temporary/"bev/height_vis.png")
+            diagnostic_images=[region_mask_vis,occupancy_vis,height_vis]
         if outputs["bev_semantic"] is not None:
             bev_semantic_file = save_numeric(
                 temporary / "bev/semantic",
@@ -206,7 +239,9 @@ def save_rendered_state(backend, state, state_dir: Path) -> Path:
             "files": {
                 "rgb": "bev/rgb.png",
                 "height": f"bev/{height_file}",
-                "occupancy": f"bev/{occupancy_file}",
+                "occupancy":f"bev/{occupancy_file}",
+                "region_mask":f"bev/{region_mask_file}",
+                "navigable_region_mask":f"bev/{navigable_region_file}",
             },
             "camera_position_world": [
                 0.5 * (mapping.x_min + mapping.x_max), state.floor_y + camera_height,
@@ -218,21 +253,34 @@ def save_rendered_state(backend, state, state_dir: Path) -> Path:
             "orthographic_extent_z_m": mapping.z_max - mapping.z_min,
             "camera_height_above_floor_m": camera_height,
             "render_resolution_hw": [mapping.height, mapping.width],
-            "bounds_source": "preprocessed_floor_visual_bev_bounds",
+            "bounds_source":"preprocessed_semantic_region_visual_bev_bounds",
+            "bev_scope":"semantic_region",
+            "region_id":backend.region_id,
+            "region_category":backend.region_category,
+            "region_context_margin_m":float(backend.config.region_context_margin_m),
+            "semantic_polygon_world":backend.region_spec.semantic_polygon_world,
             "navmesh_bounds_world": [
                 backend.navmesh_bounds[0].tolist(), backend.navmesh_bounds[1].tolist()
             ],
             "rgb_representation": "interior top-down cutaway rendered below the ceiling",
             "scene_id": backend.scene_id,
             "floor_id": backend.floor_id,
-            "allowed_navmesh_islands": backend.floor_spec.allowed_island_ids,
+            "allowed_navmesh_islands":backend.region_spec.allowed_island_ids,
+            "occupancy_encoding":"uint8 binary: 0=not navigable, 1=navigable on allowed islands at this floor",
+            "navigable_region_mask_definition":"occupancy == 1 AND official HSSD semantic region_mask == 1",
+            "occupancy_vertical_tolerance_m":float(backend.config.floor_tolerance_m),
             "ceiling_clearance_m": float(backend.config.bev_ceiling_clearance_m),
             "height_definition": "surface_world_y - floor_y",
             "height_depth_conversion": "v0.3.3 orthographic generic-unprojection output is linearized with near/far, then height = camera_height_above_floor - metric_depth",
             "height_depth_validation": height_validation,
         }
         if backend.config.save_visualizations:
-            state.bev["files"]["annotated"] = "bev/annotated.png"
+            state.bev["files"].update({
+                "annotated":"bev/annotated.png",
+                "region_mask_visualization":"bev/region_mask_vis.png",
+                "occupancy_visualization":"bev/occupancy_vis.png",
+                "height_visualization":"bev/height_vis.png",
+            })
         if outputs["bev_semantic"] is not None:
             state.bev["files"]["semantic"] = f"bev/{bev_semantic_file}"
             state.bev["semantic_encoding"] = "controlled_entity_category_id"
@@ -294,6 +342,7 @@ def save_rendered_state(backend, state, state_dir: Path) -> Path:
                 annotated,
                 robot_images,
                 f"{state.state_id} | {state.overlap['category']}",
+                diagnostic_images=diagnostic_images,
             ).save(temporary / "contact_sheet.png")
         os.replace(temporary, state_dir)
         return state_dir

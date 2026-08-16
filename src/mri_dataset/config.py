@@ -12,13 +12,13 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 class CollectorConfig:
     """Configuration for the HSSD-only formal collector."""
 
-    dataset_version: str = "2.0.0"
-    protocol_version: str = "mri-hssd-formal-v1.0"
+    dataset_version: str = "3.1.0"
+    protocol_version: str = "mri-hssd-region-formal-v2.1"
     dataset_source: str = "hssd"
     scene_dataset_config: str = "data/scene_datasets/hssd-hab/hssd-hab.scene_dataset_config.json"
     official_scene_splits: str = "data/scene_datasets/hssd-hab/scene_splits.yaml"
-    scene_registry: str = "data/hssd_processed/scene_registry.json"
-    split_manifest: str = "data/hssd_processed/split_manifest.json"
+    scene_registry: str = "data/hssd_processed/scene_registry_region_v3.json"
+    split_manifest: str = "data/hssd_processed/split_manifest_region_v3.json"
     navmesh_cache_root: str = "data/hssd_processed/navmeshes"
     controlled_object_registry: str = "configs/hssd_controlled_objects.json"
     hssd_preprocess_overrides_path: str = "configs/hssd_preprocess_overrides.json"
@@ -62,12 +62,20 @@ class CollectorConfig:
     bev_ceiling_clearance_m: float = .15
     bev_near: float = .02
     bev_far: float = 10.
-    bev_context_margin_m: float = .75
+    bev_context_margin_m: float = .75  # floor-global debug only
+    region_context_margin_m: float = .75
+    region_min_navigable_area_m2: float = 3.5
+    region_min_extent_m: float = 1.5
+    region_max_extent_m: float = 15.
+    region_min_sample_count: int = 24
+    region_sampling_trials: int = 24
+    region_min_sampling_success_rate: float = .5
+    preprocess_region_mask_min_fraction: float = .10
     bev_ceiling_ray_samples: int = 64
     bev_ceiling_ray_max_distance_m: float = 8.
     bev_min_ceiling_height_m: float = 1.6
     bev_open_scene_margin_m: float = .25
-    floor_samples_per_island: int = 256
+    floor_samples_per_island: int = 1024
     floor_min_samples_per_island: int = 64
     floor_min_island_area_m2: float = 2.
     floor_min_navigable_area_m2: float = 12.
@@ -89,9 +97,12 @@ class CollectorConfig:
     enable_instance: bool = True
     enable_semantic: bool = True
     semantic_category_ids: Dict[str, int] = field(default_factory=lambda: {
-        "robot": 1, "cup": 10, "bowl": 11, "book": 12, "bottle": 13, "box": 14,
+        "robot": 1, "cup": 10, "bowl": 11, "book": 12, "bottle": 13,
+        "box": 14, "bag": 15, "basket": 16, "can": 17, "shoe": 18,
+        "toy": 19,
     })
-    benchmark_visibility_min_pixels: int = 20
+    benchmark_visibility_min_pixels: int = 32
+    benchmark_visibility_min_fraction: float = .0001
     min_target_visible_observers: int = 1
     require_visible_robot_target: bool = False
     require_visible_object_target: bool = False
@@ -103,10 +114,14 @@ class CollectorConfig:
         "assets/robot_proxies/robot_blue.object_config.json",
     ])
     robot_proxy_height_variants: Dict[str, List[str]] = field(default_factory=dict)
-    controlled_object_whitelist: Dict[str, str] = field(default_factory=dict)
-    controlled_objects_per_state: int = 2
+    controlled_object_pools: Dict[str, List[str]] = field(default_factory=dict)
+    controlled_object_asset_hashes: Dict[str, str] = field(default_factory=dict)
+    controlled_objects_min_per_state: int = 2
+    controlled_objects_max_per_state: int = 4
     controlled_object_min_separation_m: float = .65
     num_states: int = 1
+    states_per_region: int = 1
+    max_states_per_scene: int = 0
     num_states_by_split: Dict[str, int] = field(default_factory=dict)
     num_edits_per_state: int = 1
     random_seed: int = 123
@@ -170,22 +185,48 @@ class CollectorConfig:
         return matches[0]
 
     def states_for_scene(self, scene_id):
-        return int(self.num_states_by_split.get(self.scene_split(scene_id), self.num_states))
+        """Legacy alias; formal quotas are defined per semantic region."""
+        return self.states_for_region(scene_id)
 
-    def collection_specs(self, scene_id=None, floor_id=None):
-        allowed, result = set(self.scenes), []
+    def states_for_region(self, scene_id):
+        return int(
+            self.num_states_by_split.get(
+                self.scene_split(scene_id), self.states_per_region
+            )
+        )
+
+    def state_targets(self, specs, num_states_override=None):
+        """Apply per-region quota and an optional deterministic per-scene cap."""
+        used={}
+        result=[]
+        for scene,floor,region in specs:
+            target=(
+                int(num_states_override)
+                if num_states_override is not None
+                else self.states_for_region(scene.scene_id)
+            )
+            cap=int(self.max_states_per_scene)
+            if cap>0:
+                target=min(target,max(0,cap-used.get(scene.scene_id,0)))
+            used[scene.scene_id]=used.get(scene.scene_id,0)+target
+            if target>0:
+                result.append((scene,floor,region,target))
+        return result
+
+    def collection_specs(self, scene_id=None, floor_id=None, region_id=None):
+        allowed,result=set(self.scenes),[]
         for scene in self.registry().scenes:
             if not scene.eligible or scene.scene_id not in allowed: continue
-            if scene_id is not None and scene.scene_id != scene_id: continue
+            if scene_id is not None and scene.scene_id!=scene_id: continue
             for floor in scene.eligible_floors:
-                if floor_id is None or floor.floor_id == floor_id:
-                    result.append((scene, floor))
+                if floor_id is not None and floor.floor_id!=floor_id: continue
+                for region in floor.eligible_regions:
+                    if region_id is None or region.region_id==region_id:
+                        result.append((scene,floor,region))
         if scene_id is not None and not result:
-            raise ValueError(f"No eligible HSSD target matches {scene_id}/{floor_id or '*'}")
-        order = {"train": 0, "val": 1, "test": 2}
-        return sorted(result, key=lambda item: (
-            order[self.scene_split(item[0].scene_id)], item[0].scene_id, item[1].floor_id
-        ))
+            raise ValueError(f"No eligible HSSD region matches {scene_id}/{floor_id or '*'}/{region_id or '*'}")
+        order={"train":0,"val":1,"test":2}
+        return sorted(result,key=lambda item:(order[self.scene_split(item[0].scene_id)],item[0].scene_id,item[1].floor_id,item[2].region_id))
 
     def to_dict(self): return asdict(self)
 
@@ -216,8 +257,8 @@ class CollectorConfig:
         return hashlib.sha256(json.dumps(data, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
     def validate(self):
-        if self.dataset_version != "2.0.0" or self.dataset_source != "hssd":
-            raise ValueError("Formal generation is HSSD-only dataset version 2.0.0")
+        if self.dataset_version != "3.1.0" or self.dataset_source != "hssd":
+            raise ValueError("Formal generation is HSSD-only dataset version 3.1.0")
         lowered = str(self.dataset_config_path).lower()
         if self.dataset_config_path.name != "hssd-hab.scene_dataset_config.json":
             raise ValueError("Use standard hssd-hab.scene_dataset_config.json")
@@ -256,15 +297,27 @@ class CollectorConfig:
         if self.min_inter_robot_distance_m < self.robot_body_diameter_m + .10:
             raise ValueError("Unsafe robot clearance")
         if not self.enable_instance: raise ValueError("OBJECT_ID is mandatory")
-        if self.require_preprocessed_registry and self.controlled_objects_per_state > 0 and not self.controlled_object_whitelist:
-            raise ValueError("HSSD object registry has no selected exact handles")
-        if self.enable_semantic and not {"robot", *self.controlled_object_whitelist}.issubset(self.semantic_category_ids):
+        if self.require_preprocessed_registry and self.controlled_objects_max_per_state > 0 and not self.controlled_object_pools:
+            raise ValueError("HSSD approved object registry has no curated asset pools")
+        if any(not assets for assets in self.controlled_object_pools.values()):
+            raise ValueError("Every object category needs approved assets")
+        if not 0 <= self.controlled_objects_min_per_state <= self.controlled_objects_max_per_state:
+            raise ValueError("Invalid controlled object count range")
+        if self.enable_semantic and not {"robot", *self.controlled_object_pools}.issubset(self.semantic_category_ids):
             raise ValueError("Missing semantic category")
         ids = list(map(int, self.semantic_category_ids.values()))
         if any(value <= 0 for value in ids) or len(ids) != len(set(ids)):
             raise ValueError("Semantic IDs must be unique positive values")
-        if min(self.num_states, self.num_edits_per_state) < 0: raise ValueError("Negative counts")
+        if min(
+            self.num_states,self.states_per_region,self.max_states_per_scene,
+            self.num_edits_per_state,
+        )<0:
+            raise ValueError("Negative counts")
         if set(self.num_states_by_split) - set(self.scene_splits): raise ValueError("Unknown count split")
+        if self.heading_mode not in {"mixed","random","shared_focus"}: raise ValueError("Unknown heading_mode")
+        if not 0 <= self.benchmark_visibility_min_fraction <= 1: raise ValueError("Invalid visibility fraction")
+        if not 0 < self.region_min_navigable_area_m2 or self.region_min_extent_m <= 0 or self.region_max_extent_m <= self.region_min_extent_m:
+            raise ValueError("Invalid region thresholds")
         if not 1 <= self.height_validation_min_samples <= self.height_validation_samples:
             raise ValueError("Invalid height validation samples")
         supported = {"robot_translate", "robot_rotate", "object_translate", "object_place_relative", "object_remove"}
@@ -284,27 +337,38 @@ class CollectorConfig:
 
 
 def _materialize_hssd_sources(config):
-    path = config.controlled_object_registry_path
+    path=config.controlled_object_registry_path
     if path.is_file():
-        data = json.loads(path.read_text(encoding="utf-8"))
-        selected = data.get("selected_handles", data.get("categories", {}))
-        if selected and not isinstance(selected, dict): raise ValueError("selected_handles must map categories")
-        if selected: config.controlled_object_whitelist = {str(k): str(v) for k, v in selected.items()}
-    if not config.require_preprocessed_registry: return
-    if not config.split_manifest_path.is_file() or not config.scene_registry_path.is_file(): return
+        data=json.loads(path.read_text(encoding="utf-8"))
+        if data.get("schema_version")=="2.0.0":
+            approved=data.get("approved_assets",{})
+            if not isinstance(approved,dict): raise ValueError("approved_assets must be an object")
+            pools={}; hashes={}
+            for category,records in approved.items():
+                if not isinstance(records,list): raise ValueError("Approved pools must be lists")
+                pools[str(category)]=[]
+                for record in records:
+                    canonical=str(record["canonical_id"])
+                    if canonical.startswith("/") or ".." in Path(canonical).parts: raise ValueError("Unsafe canonical object ID")
+                    pools[str(category)].append(canonical); hashes[canonical]=str(record["asset_fingerprint"])
+            config.controlled_object_pools=pools; config.controlled_object_asset_hashes=hashes
+        elif config.require_preprocessed_registry:
+            raise ValueError("Legacy one-handle object registry is unsupported")
+    if not config.require_preprocessed_registry:return
+    if not config.split_manifest_path.is_file() or not config.scene_registry_path.is_file():return
     from .scene_registry import load_split_manifest
-    manifest = load_split_manifest(config.split_manifest_path)
-    eligible = {scene.scene_id for scene in config.registry().scenes if scene.eligible}
-    splits = {}
-    for split in ("train", "val", "test"):
-        values = [scene for scene in manifest["scene_splits"][split] if scene in eligible]
-        maximum = config.max_scenes_per_split.get(split)
+    manifest=load_split_manifest(config.split_manifest_path)
+    eligible={scene.scene_id for scene in config.registry().scenes if scene.eligible}
+    splits={}
+    for split in ("train","val","test"):
+        values=[scene for scene in manifest["scene_splits"][split] if scene in eligible]
+        maximum=config.max_scenes_per_split.get(split)
         if maximum is not None:
-            if int(maximum) < 0: raise ValueError("Negative max_scenes_per_split")
-            values = values[:int(maximum)]
-        splits[split] = values
-    config.scene_splits = splits
-    config.scenes = sum((splits[name] for name in ("train", "val", "test")), [])
+            if int(maximum)<0:raise ValueError("Negative max_scenes_per_split")
+            values=values[:int(maximum)]
+        splits[split]=values
+    config.scene_splits=splits
+    config.scenes=sum((splits[name] for name in ("train","val","test")),[])
 
 
 def load_config(path: Optional[str] = None, **overrides: Any) -> CollectorConfig:

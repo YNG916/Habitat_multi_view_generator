@@ -105,35 +105,41 @@ def occupancy_from_pathfinder(
     floor_y: float,
     navmesh_bounds=None,
     allowed_island_ids=None,
+    vertical_tolerance_m: float = 0.5,
 ) -> np.ndarray:
-    """Rasterize NavMesh in C++ and register it to the visual BEV.
+    """Return a binary NavMesh raster registered to the visual BEV.
 
-    Habitat rows increase with world +Z and columns with +X. The normalized
-    lookup also supports visual bounds that extend beyond the NavMesh.
+    ``get_topdown_island_view`` returns an int32 island-index map and uses its
+    third argument as vertical ``eps`` (not an island id).  Non-navigable cells
+    are -1.  Filter that map explicitly before converting to uint8 so -1 can
+    never wrap to 255.
     """
     if navmesh_bounds is None:
         navmesh_bounds = pathfinder.get_bounds()
     nav_low = np.asarray(navmesh_bounds[0], dtype=np.float64)
     nav_high = np.asarray(navmesh_bounds[1], dtype=np.float64)
     native_mpp = min(mapping.meters_per_pixel_x, mapping.meters_per_pixel_z)
+    tolerance = float(vertical_tolerance_m)
+    if tolerance <= 0:
+        raise ValueError("Occupancy vertical tolerance must be positive")
     if allowed_island_ids is None:
         native = np.asarray(
-            pathfinder.get_topdown_view(float(native_mpp), float(floor_y)),
-            dtype=np.uint8,
+            pathfinder.get_topdown_view(
+                float(native_mpp), float(floor_y), tolerance
+            ),
+            dtype=bool,
         )
     else:
-        island_views = [
-            np.asarray(
-                pathfinder.get_topdown_island_view(
-                    float(native_mpp), float(floor_y), int(island_id)
-                ),
-                dtype=np.uint8,
-            )
-            for island_id in allowed_island_ids
-        ]
-        if not island_views:
-            raise ValueError("Floor-local occupancy requires at least one island")
-        native = np.maximum.reduce(island_views)
+        allowed = sorted(set(map(int, allowed_island_ids)))
+        if not allowed:
+            raise ValueError("Region-local occupancy requires at least one island")
+        island_map = np.asarray(
+            pathfinder.get_topdown_island_view(
+                float(native_mpp), float(floor_y), tolerance
+            ),
+            dtype=np.int32,
+        )
+        native = np.isin(island_map, np.asarray(allowed, dtype=np.int32))
     occupancy = np.zeros((mapping.height, mapping.width), dtype=np.uint8)
     if native.ndim != 2 or 0 in native.shape:
         return occupancy
@@ -142,11 +148,15 @@ def occupancy_from_pathfinder(
     zs = np.linspace(mapping.z_min, mapping.z_max, mapping.height)
     x_extent = float(nav_high[0] - nav_low[0])
     z_extent = float(nav_high[2] - nav_low[2])
+    if x_extent <= 0 or z_extent <= 0:
+        raise ValueError("PathFinder bounds must have positive X/Z extents")
     cols = np.floor((xs - nav_low[0]) / x_extent * native.shape[1]).astype(np.int64)
     rows = np.floor((zs - nav_low[2]) / z_extent * native.shape[0]).astype(np.int64)
     valid_cols = (cols >= 0) & (cols < native.shape[1])
     valid_rows = (rows >= 0) & (rows < native.shape[0])
-    occupancy[np.ix_(valid_rows, valid_cols)] = native[np.ix_(rows[valid_rows], cols[valid_cols])]
+    occupancy[np.ix_(valid_rows, valid_cols)] = native[
+        np.ix_(rows[valid_rows], cols[valid_cols])
+    ].astype(np.uint8)
     return occupancy
 
 

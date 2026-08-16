@@ -2,12 +2,12 @@
   "dataset_source": "hssd",
   "scene_dataset_config": "data/scene_datasets/hssd-hab/hssd-hab.scene_dataset_config.json",
   "official_scene_splits": "data/scene_datasets/hssd-hab/scene_splits.yaml",
-  "scene_registry": "data/hssd_processed/scene_registry.json",
-  "split_manifest": "data/hssd_processed/split_manifest.json",
+  "scene_registry": "data/hssd_processed/scene_registry_region_pilot_v3.json",
+  "split_manifest": "data/hssd_processed/split_manifest_region_pilot_v3.json",
   "navmesh_cache_root": "data/hssd_processed/navmeshes",
   "controlled_object_registry": "configs/hssd_controlled_objects.json",
   "hssd_preprocess_overrides_path": "configs/hssd_preprocess_overrides.json",
-  "output_root": "outputs/mri_hssd_smoke_hd",
+  "output_root": "outputs/mri_hssd_region_smoke_hd_v2",
   "max_scenes_per_split": {
     "train": 1,
     "val": 1,
@@ -18,8 +18,25 @@
   "bev_meters_per_pixel": 0.02,
   "num_states": 1,
   "num_edits_per_state": 1,
-  "controlled_objects_per_state": 2,
   "save_visualizations": true,
   "compress_numeric_arrays": true,
-  "random_seed": 123
+  "random_seed": 123,
+  "controlled_objects_min_per_state": 2,
+  "controlled_objects_max_per_state": 4,
+  "semantic_category_ids": {
+    "robot": 1,
+    "cup": 10,
+    "bowl": 11,
+    "book": 12,
+    "bottle": 13,
+    "box": 14,
+    "bag": 15,
+    "basket": 16,
+    "can": 17,
+    "shoe": 18,
+    "toy": 19
+  },
+  "region_context_margin_m": 0.75,
+  "states_per_region": 2,
+  "max_states_per_scene": 4
 }

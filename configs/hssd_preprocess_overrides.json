@@ -1,1 +1,5 @@
-{}
+{
+  "108736611_177263226": {
+    "skip_scene_reason": "known HSSD PBR material abort: invalid common texture coordinate transformation"
+  }
+}

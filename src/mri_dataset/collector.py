@@ -26,8 +26,9 @@ def make_world_state(backend, config, state_id: str, seed: int, deterministic_de
         backend.sim.pathfinder, rng, config.num_robots,
         config.min_obstacle_distance_m, config.min_inter_robot_distance_m,
         config.local_sampling_radius_m, config.floor_tolerance_m,
-        allowed_island_ids=backend.floor_spec.allowed_island_ids,
-        representative_floor_y=backend.floor_spec.representative_floor_y,
+        allowed_island_ids=backend.region_spec.allowed_island_ids,
+        representative_floor_y=backend.region_spec.representative_floor_y,
+        region_spec=backend.region_spec,
     )
     yaws = sample_yaws(
         positions, rng, config.heading_mode, config.shared_heading_jitter_deg
@@ -43,9 +44,11 @@ def make_world_state(backend, config, state_id: str, seed: int, deterministic_de
     floor_y = float(np.median(surface_ys))
     robots = build_robot_states(positions, yaws, rng, config, deterministic_heights=heights)
     state = WorldState(
-        schema_version="0.2.0", state_id=state_id, scene_id=backend.scene_id,
+        schema_version="0.4.0", state_id=state_id, scene_id=backend.scene_id,
         floor_y=floor_y, random_seed=seed, robots=robots,
-        dataset_source="hssd", floor_id=backend.floor_id,
+        dataset_source="hssd",floor_id=backend.floor_id,region_id=backend.region_id,
+        region_category=backend.region_category,bev_scope="semantic_region",
+        region_context_margin_m=float(config.region_context_margin_m),
     )
     state.objects = sample_controlled_objects(backend, state, config, rng)
     state.overlap = compute_fov_overlap(backend.mapping, robots, config.hfov_deg)
@@ -53,53 +56,43 @@ def make_world_state(backend, config, state_id: str, seed: int, deterministic_de
     return state
 
 
-def sample_controlled_objects(backend, state, config, rng) -> list:
-    if config.controlled_objects_per_state <= 0:
-        return []
-    categories = sorted(backend.controlled_handles)
-    anchor = np.asarray(state.robots[0].base_position_world)
-    island = int(backend.sim.pathfinder.get_island(anchor))
-    if island not in backend.floor_spec.allowed_island_ids:
-        raise ValueError("Object anchor is outside the selected HSSD floor islands")
-    result = []
-    for index in range(1, config.controlled_objects_per_state + 1):
-        category = categories[int(rng.integers(0, len(categories)))]
+def sample_object_choices(pools, count, rng):
+    categories=sorted(category for category,assets in pools.items() if assets)
+    if count>0 and not categories:
+        raise ValueError("No approved controlled-object assets")
+    result=[]
+    for _ in range(int(count)):
+        category=categories[int(rng.integers(len(categories)))]
+        assets=list(pools[category])
+        result.append((category,assets[int(rng.integers(len(assets)))]))
+    return result
+
+
+def sample_controlled_objects(backend,state,config,rng)->list:
+    maximum=int(config.controlled_objects_max_per_state); minimum=int(config.controlled_objects_min_per_state)
+    if maximum<=0:return []
+    target=int(rng.integers(minimum,maximum+1))
+    choices=sample_object_choices(backend.controlled_handles,target,rng)
+    anchor=np.asarray(state.robots[0].base_position_world)
+    island=int(backend.sim.pathfinder.get_island(anchor))
+    if island not in backend.region_spec.allowed_island_ids: raise ValueError("Object anchor outside selected region islands")
+    result=[]
+    for index,(category,asset) in enumerate(choices,start=1):
         for _ in range(400):
-            point = np.asarray(
-                backend.sim.pathfinder.get_random_navigable_point(100, island),
-                dtype=np.float64,
-            )
-            if not np.all(np.isfinite(point)):
-                continue
-            if np.linalg.norm(point[[0, 2]] - anchor[[0, 2]]) > min(
-                2.5, config.local_sampling_radius_m
-            ):
-                continue
-            object_floor_y = backend.floor_surface_y(point)
-            if abs(object_floor_y - state.floor_y) > config.floor_tolerance_m:
-                continue
-            robot_distances = [
-                np.linalg.norm(point[[0, 2]] - np.asarray(robot.base_position_world)[[0, 2]])
-                for robot in state.robots
-            ]
-            object_distances = [
-                np.linalg.norm(point[[0, 2]] - np.asarray(obj.position_world)[[0, 2]])
-                for obj in result
-            ]
-            if min(robot_distances) < config.controlled_object_min_separation_m:
-                continue
-            if object_distances and min(object_distances) < config.controlled_object_min_separation_m:
-                continue
-            candidate = backend.create_object_state(category, point[0], point[2], object_floor_y, index)
-            state.objects = result + [candidate]
-            if (
-                controlled_object_collision_free(candidate, state, backend.render_bev_bounds)
-                and backend.object_collision_free(state, candidate.instance_id)
-            ):
-                result.append(candidate)
-                break
-        else:
-            raise RuntimeError(f"Could not place controlled object {index} collision-free")
+            point=np.asarray(backend.sim.pathfinder.get_random_navigable_point(100,island),dtype=np.float64)
+            if not np.all(np.isfinite(point)) or not backend.point_in_region(point):continue
+            if np.linalg.norm(point[[0,2]]-anchor[[0,2]])>min(2.5,config.local_sampling_radius_m):continue
+            object_floor_y=backend.floor_surface_y(point)
+            if abs(object_floor_y-state.floor_y)>config.floor_tolerance_m:continue
+            robot_distances=[np.linalg.norm(point[[0,2]]-np.asarray(robot.base_position_world)[[0,2]]) for robot in state.robots]
+            object_distances=[np.linalg.norm(point[[0,2]]-np.asarray(obj.position_world)[[0,2]]) for obj in result]
+            if min(robot_distances)<config.controlled_object_min_separation_m:continue
+            if object_distances and min(object_distances)<config.controlled_object_min_separation_m:continue
+            candidate=backend.create_object_state(category,asset,point[0],point[2],object_floor_y,index)
+            state.objects=result+[candidate]
+            if controlled_object_collision_free(candidate,state,backend.render_bev_bounds) and backend.object_collision_free(state,candidate.instance_id):
+                result.append(candidate);break
+        else:raise RuntimeError(f"Could not place controlled object {index} in region")
     return result
 
 
@@ -107,6 +100,8 @@ def validate_sampled_state(backend, state, config) -> None:
     pathfinder = backend.sim.pathfinder
     for robot in state.robots:
         point = np.asarray(robot.base_position_world)
+        if not backend.point_in_region(point):
+            raise ValueError(f"{robot.robot_id} is outside selected semantic region")
         if not pathfinder.is_navigable(point):
             raise ValueError(f"{robot.robot_id} is not navigable: {point}")
         if abs(point[1] - state.floor_y) > config.floor_tolerance_m:
@@ -155,7 +150,7 @@ def initialize_dataset_root(root: Path, config) -> None:
     write_json(
         dataset_path,
         {
-            "schema_version": "2.0.0",
+            "schema_version":config.dataset_version,
             "dataset_source": "hssd",
             "dataset_version": config.dataset_version,
             "generator": "mri_dataset",
@@ -173,9 +168,9 @@ def initialize_dataset_root(root: Path, config) -> None:
     write_json(
         root / "categories.json",
         {
-            "controlled_objects": [
-                {"category": category, "exact_hssd_template_handle": handle}
-                for category, handle in config.controlled_object_whitelist.items()
+            "controlled_objects":[
+                {"category":category,"canonical_hssd_asset_ids":assets}
+                for category,assets in sorted(config.controlled_object_pools.items())
             ],
             "robot_proxies": ["red", "green", "blue"],
             "semantic_category_ids": config.semantic_category_ids,
@@ -186,13 +181,13 @@ def initialize_dataset_root(root: Path, config) -> None:
     )
 
 
-def update_dataset_index(root: Path) -> None:
+def update_dataset_index(root: Path, require_referenced_after_states: bool = True) -> None:
     root = Path(root)
     dataset_path = root / "dataset.json"
     with dataset_path.open("r", encoding="utf-8") as handle:
         dataset = json.load(handle)
-    state_paths = sorted(root.glob("scenes/*/floors/*/states/*/state.json"))
-    edit_paths = sorted(root.glob("interventions/*/*/edit_*.json"))
+    state_paths = sorted(root.glob("scenes/*/floors/*/regions/*/states/*/state.json"))
+    edit_paths = sorted(root.glob("interventions/*/*/*/edit_*.json"))
 
     configured_splits = dataset.get("scene_splits", {})
     scene_to_split = {
@@ -268,7 +263,7 @@ def update_dataset_index(root: Path) -> None:
             )
 
     orphan_after = sorted(set(derived_states) - referenced_after_states)
-    if orphan_after:
+    if orphan_after and require_referenced_after_states:
         raise ValueError(
             "Intervention-derived states are not referenced by an edit: "
             f"{orphan_after[:5]}"
@@ -337,8 +332,9 @@ def collect_level1(
 ) -> List[Path]:
     initialize_dataset_root(root, config)
     scene_dir = root / "scenes" / backend.scene_id
-    floor_dir = scene_dir / "floors" / backend.floor_id
-    (floor_dir / "states").mkdir(parents=True, exist_ok=True)
+    floor_dir=scene_dir/"floors"/backend.floor_id
+    region_dir=floor_dir/"regions"/backend.region_id
+    (region_dir/"states").mkdir(parents=True,exist_ok=True)
     write_json(
         scene_dir / "scene.json",
         {
@@ -371,13 +367,22 @@ def collect_level1(
             "bev_camera_height_m": backend.floor_spec.bev_camera_height_m,
         },
     )
+    write_json(region_dir/"region.json",{
+        "dataset_source":"hssd","scene_id":backend.scene_id,"floor_id":backend.floor_id,
+        "region_id":backend.region_id,"region_category":backend.region_category,
+        "split":config.scene_split(backend.scene_id),"semantic_polygon_world":backend.region_spec.semantic_polygon_world,
+        "allowed_island_ids":backend.region_spec.allowed_island_ids,
+        "navigable_area_m2":backend.region_spec.navigable_area_m2,
+        "render_bev_bounds_world":[backend.render_bev_bounds[0].tolist(),backend.render_bev_bounds[1].tolist()],
+        "bev_camera_height_m":backend.region_spec.bev_camera_height_m,
+        "bev_scope":"semantic_region","region_context_margin_m":config.region_context_margin_m})
     saved = []
     skipped = []
     failures = Counter()
     max_attempts = int(config.max_state_sampling_attempts)
     for index in range(1, num_states + 1):
         state_id = f"state_{index:06d}"
-        state_dir = floor_dir / "states" / state_id
+        state_dir=region_dir/"states"/state_id
         if state_dir.exists():
             if config.resume and state_directory_complete(state_dir):
                 skipped.append(state_dir)
@@ -393,6 +398,7 @@ def collect_level1(
                 config.protocol_version,
                 backend.scene_id,
                 backend.floor_id,
+                backend.region_id,
                 state_id,
                 "level1",
                 attempt,
@@ -416,10 +422,12 @@ def collect_level1(
                 f"{max_attempts} attempts: {last_error}"
             ) from last_error
     write_json(
-        floor_dir / "level1_collection_status.json",
+        region_dir/"level1_collection_status.json",
         {
             "scene_id": backend.scene_id,
-            "floor_id": backend.floor_id,
+            "floor_id":backend.floor_id,
+            "region_id":backend.region_id,
+            "region_category":backend.region_category,
             "target_states": int(num_states),
             "new_states": len(saved),
             "resumed_states": len(skipped),
@@ -428,5 +436,7 @@ def collect_level1(
             "complete": len(saved) + len(skipped) == int(num_states),
         },
     )
-    update_dataset_index(root)
+    # An interrupted Level-2 slot may already have an atomic after-state but
+    # not its edit JSON. Level-2 recovery will reconstruct that record.
+    update_dataset_index(root,require_referenced_after_states=False)
     return saved

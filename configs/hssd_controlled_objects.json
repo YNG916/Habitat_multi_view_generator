@@ -1,436 +1,355 @@
 {
-  "schema_version": "1.0.0",
+  "schema_version": "2.0.0",
   "dataset_source": "hssd",
-  "source_dataset_config": "data/scene_datasets/hssd-hab/hssd-hab.scene_dataset_config.json",
-  "selection_policy": {
-    "real_hssd_templates_only": true,
-    "horizontal_extent_m": [
-      0.025,
-      0.5
+  "registry_role": "explicit_formal_approval",
+  "source_candidates": "data/hssd_processed/object_candidates.json",
+  "approval_policy": {
+    "whole_object_only": true,
+    "decomposed_allowed": false,
+    "review_basis": [
+      "real HSSD semantic category",
+      "complete non-decomposed object_config",
+      "collider present",
+      "0.025-0.60 m physical extent",
+      "floor-level robot-camera utility"
     ],
-    "height_m": [
-      0.01,
-      0.5
-    ],
-    "target_horizontal_extent_m": 0.14,
-    "target_height_m": 0.12
+    "same_pool_across_scene_splits": true
   },
-  "selected_handles": {
-    "cup": "/cvhci/temp/yyang/Multi_view_world_model/habitat/data/versioned_data/hssd-hab/objects/0/0614900c76c99d7781721d3d9053dcf5115ee3d5.object_config.json",
-    "bowl": "/cvhci/temp/yyang/Multi_view_world_model/habitat/data/versioned_data/hssd-hab/objects/4/432ea22941c88f9849c68d2fc40f2ee62af3b303.object_config.json",
-    "book": "/cvhci/temp/yyang/Multi_view_world_model/habitat/data/versioned_data/hssd-hab/objects/decomposed/2db50fb1f8120974d6157ae9aff704a4fc9d181f/2db50fb1f8120974d6157ae9aff704a4fc9d181f_part_47.object_config.json",
-    "bottle": "/cvhci/temp/yyang/Multi_view_world_model/habitat/data/versioned_data/hssd-hab/objects/decomposed/ab541ddf6a38484c5fa53f5f642d8897133519c7/ab541ddf6a38484c5fa53f5f642d8897133519c7_part_1.object_config.json",
-    "box": "/cvhci/temp/yyang/Multi_view_world_model/habitat/data/versioned_data/hssd-hab/objects/b/b1f493b30dcf305b4ca0a651eb6820f2abcd7777.object_config.json"
-  },
-  "candidates": {
-    "cup": [
+  "approved_assets": {
+    "bag": [
       {
-        "handle": "/cvhci/temp/yyang/Multi_view_world_model/habitat/data/versioned_data/hssd-hab/objects/0/0614900c76c99d7781721d3d9053dcf5115ee3d5.object_config.json",
-        "semantic_id": 99,
+        "canonical_id": "objects/f/fca6f66bbf2fcc9989e18a179ef10c97558fe8e7.object_config.json",
+        "semantic_id": 11,
         "extent_xyz_m": [
-          0.15078145265579224,
-          0.1469999998807907,
-          0.15078145265579224
+          0.2402227818965912,
+          0.16946585476398468,
+          0.10439123213291168
         ],
-        "selection_score": 0.02428145259618758
+        "asset_fingerprint": "2737b6ee8f06223ea17bed62ba379015bc4e3421ff32914ebb251cfb0b13b9d8"
       },
       {
-        "handle": "/cvhci/temp/yyang/Multi_view_world_model/habitat/data/versioned_data/hssd-hab/objects/0/076a39bd580b76413ea7128c6b124a8ef7231b76.object_config.json",
-        "semantic_id": 99,
+        "canonical_id": "objects/d/d18433a62ef38aab61189e0a413bd014c0461c9b.object_config.json",
+        "semantic_id": 11,
         "extent_xyz_m": [
-          0.15239286422729492,
-          0.07411892712116241,
-          0.15239286422729492
+          0.1603224277496338,
+          0.2605023980140686,
+          0.21695896983146667
         ],
-        "selection_score": 0.0353334006667137
+        "asset_fingerprint": "dad7aa48faa2dc208776f05cb9ec129ea3c790142f3898e745eeaae512c28999"
       },
       {
-        "handle": "/cvhci/temp/yyang/Multi_view_world_model/habitat/data/versioned_data/hssd-hab/objects/7/73cae0c00c31e895cbf8c6ac2bcc3ce718d03b21.object_config.json",
-        "semantic_id": 99,
+        "canonical_id": "objects/d/dd9b0f2f6b703b5cdd20d5d6479ce4835581d4c2.object_config.json",
+        "semantic_id": 11,
         "extent_xyz_m": [
-          0.1419038027524948,
-          0.2508659362792969,
-          0.16457727551460266
+          0.3100000023841858,
+          0.3299999535083771,
+          0.09999985992908478
         ],
-        "selection_score": 0.09001024365425109
+        "asset_fingerprint": "70d5c6312290bed421bf00953f132dff308702d9b1bae890d2ea6530d56ae3d6"
       },
       {
-        "handle": "/cvhci/temp/yyang/Multi_view_world_model/habitat/data/versioned_data/hssd-hab/objects/7/7803eed87c55068705e00ddc50b6060a67fc492e.object_config.json",
-        "semantic_id": 99,
+        "canonical_id": "objects/6/6342bb30597f40b7df8b207282df821a2ec22ca8.object_config.json",
+        "semantic_id": 11,
         "extent_xyz_m": [
-          0.059407517313957214,
-          0.15272966027259827,
-          0.059404000639915466
+          0.3149905800819397,
+          0.4229734539985657,
+          0.32503676414489746
         ],
-        "selection_score": 0.09695731282234193
+        "asset_fingerprint": "48b1d246efcebaf2072b78111288a8571215930b6b07615e1c8a60dc18998cde"
       }
     ],
-    "bowl": [
+    "basket": [
       {
-        "handle": "/cvhci/temp/yyang/Multi_view_world_model/habitat/data/versioned_data/hssd-hab/objects/4/432ea22941c88f9849c68d2fc40f2ee62af3b303.object_config.json",
-        "semantic_id": 45,
+        "canonical_id": "objects/3/38de8faf853de33033df925405a03ed703dfb4a7.object_config.json",
+        "semantic_id": 19,
         "extent_xyz_m": [
-          0.30007627606391907,
-          0.14911559224128723,
-          0.30007627606391907
+          0.2500999867916107,
+          0.13790777325630188,
+          0.1292654573917389
         ],
-        "selection_score": 0.17463407218456267
+        "asset_fingerprint": "9768485970b5dc0acef4ebc824b18e768c2ba11020a3df50638cda093577981d"
       },
       {
-        "handle": "/cvhci/temp/yyang/Multi_view_world_model/habitat/data/versioned_data/hssd-hab/objects/7/72d4bee536e3e39ae09d9d3248c36dbc644638ec.object_config.json",
-        "semantic_id": 45,
+        "canonical_id": "objects/5/5fde4b693fe275d0676574fcf7452243e4ff203d.object_config.json",
+        "semantic_id": 19,
         "extent_xyz_m": [
-          0.3760572075843811,
-          0.07617855817079544,
-          0.3761865794658661
+          0.19998931884765625,
+          0.3099135458469391,
+          0.10999704897403717
         ],
-        "selection_score": 0.25809730038046835
+        "asset_fingerprint": "67f0c48df762de9a97901ea8aabdee81e0857bcc5d6d70264def743667598c36"
       },
       {
-        "handle": "/cvhci/temp/yyang/Multi_view_world_model/habitat/data/versioned_data/hssd-hab/objects/c/c816dc1bb177a739c7c52bbca6097e7e627a2214.object_config.json",
-        "semantic_id": 45,
+        "canonical_id": "objects/2/25af0132c250a4a6dc8976b5852358b5e26aaba8.object_config.json",
+        "semantic_id": 19,
         "extent_xyz_m": [
-          0.4487886428833008,
-          0.1499999612569809,
-          0.44919338822364807
+          0.23309437930583954,
+          0.2603085935115814,
+          0.23309439420700073
         ],
-        "selection_score": 0.3241933688521385
+        "asset_fingerprint": "023e9ad58497680b781d390e69d1b36d3119cb10c4827ff3d9bf6ec6a0d661c7"
+      },
+      {
+        "canonical_id": "objects/1/18c27e6de6793e951029c5f24de25005283cf29a.object_config.json",
+        "semantic_id": 19,
+        "extent_xyz_m": [
+          0.2455098181962967,
+          0.2720843255519867,
+          0.24268954992294312
+        ],
+        "asset_fingerprint": "a28700b0af332c4ff443bd52026d584688c6a100cfc69f9dc939bee5b2a8954a"
       }
     ],
     "book": [
       {
-        "handle": "/cvhci/temp/yyang/Multi_view_world_model/habitat/data/versioned_data/hssd-hab/objects/decomposed/2db50fb1f8120974d6157ae9aff704a4fc9d181f/2db50fb1f8120974d6157ae9aff704a4fc9d181f_part_47.object_config.json",
-        "semantic_id": 41,
-        "extent_xyz_m": [
-          0.07837845385074615,
-          0.28399962186813354,
-          0.23845511674880981
-        ],
-        "selection_score": 0.18045492768287658
-      },
-      {
-        "handle": "/cvhci/temp/yyang/Multi_view_world_model/habitat/data/versioned_data/hssd-hab/objects/0/068dc0001bbcb597e85cbb5b3ca820a9231e58e4.object_config.json",
+        "canonical_id": "objects/0/068dc0001bbcb597e85cbb5b3ca820a9231e58e4.object_config.json",
         "semantic_id": 41,
         "extent_xyz_m": [
           0.25,
           0.30000001192092896,
           0.06003207713365555
         ],
-        "selection_score": 0.20000000596046447
+        "asset_fingerprint": "b4eecf3f9647590ef186a8a3dded6c86689e20f754c53c36b3a910b63a47cbd3"
       },
       {
-        "handle": "/cvhci/temp/yyang/Multi_view_world_model/habitat/data/versioned_data/hssd-hab/objects/decomposed/c038b4f74c5841247cc2f3b196a55789e5055ccb/c038b4f74c5841247cc2f3b196a55789e5055ccb_part_2.object_config.json",
-        "semantic_id": 41,
-        "extent_xyz_m": [
-          0.3483195900917053,
-          0.14815908670425415,
-          0.09232214093208313
-        ],
-        "selection_score": 0.2223991334438324
-      },
-      {
-        "handle": "/cvhci/temp/yyang/Multi_view_world_model/habitat/data/versioned_data/hssd-hab/objects/4/4ec6215b43f606e9e77c881ad0f1dfa81474805d.object_config.json",
+        "canonical_id": "objects/4/4ec6215b43f606e9e77c881ad0f1dfa81474805d.object_config.json",
         "semantic_id": 41,
         "extent_xyz_m": [
           0.27939924597740173,
           0.02539999969303608,
           0.3555995225906372
         ],
-        "selection_score": 0.26289952274411915
+        "asset_fingerprint": "a24ed2b291be83541a0c3ea27071fc7105f0043a52c6fc155382bccd02b92ffd"
       },
       {
-        "handle": "/cvhci/temp/yyang/Multi_view_world_model/habitat/data/versioned_data/hssd-hab/objects/b/bbfb0ee0e62f355da814813c92f896e46a1b6971.object_config.json",
+        "canonical_id": "objects/b/bbfb0ee0e62f355da814813c92f896e46a1b6971.object_config.json",
         "semantic_id": 41,
         "extent_xyz_m": [
           0.36780840158462524,
           0.2886999547481537,
           0.20375050604343414
         ],
-        "selection_score": 0.3121583789587021
+        "asset_fingerprint": "518a60a6603778c70e56a90e47bb3a6f041840c61acb62c3b156d46bd26e1922"
       },
       {
-        "handle": "/cvhci/temp/yyang/Multi_view_world_model/habitat/data/versioned_data/hssd-hab/objects/7/7fb3100902d859575057623870a2ee4159a9428e.object_config.json",
+        "canonical_id": "objects/7/7fb3100902d859575057623870a2ee4159a9428e.object_config.json",
         "semantic_id": 41,
         "extent_xyz_m": [
           0.46620774269104004,
           0.2507266402244568,
           0.19319230318069458
         ],
-        "selection_score": 0.3915710628032684
-      },
-      {
-        "handle": "/cvhci/temp/yyang/Multi_view_world_model/habitat/data/versioned_data/hssd-hab/objects/0/0f7a798499792d2d32a39a87ebabfa57c00ba48e.object_config.json",
-        "semantic_id": 41,
-        "extent_xyz_m": [
-          0.30000001192092896,
-          0.019999999552965164,
-          0.5
-        ],
-        "selection_score": 0.4100000002235174
-      },
-      {
-        "handle": "/cvhci/temp/yyang/Multi_view_world_model/habitat/data/versioned_data/hssd-hab/objects/8/8c73109a6020fbf91d2491766b22e7167f13ae21.object_config.json",
-        "semantic_id": 41,
-        "extent_xyz_m": [
-          0.30000001192092896,
-          0.019999999552965164,
-          0.5
-        ],
-        "selection_score": 0.4100000002235174
+        "asset_fingerprint": "dde8f3de09fbf5b3eb6c3e295e1b1442f93a02ea28564eed777e0da7390e40c9"
       }
     ],
     "bottle": [
       {
-        "handle": "/cvhci/temp/yyang/Multi_view_world_model/habitat/data/versioned_data/hssd-hab/objects/decomposed/ab541ddf6a38484c5fa53f5f642d8897133519c7/ab541ddf6a38484c5fa53f5f642d8897133519c7_part_1.object_config.json",
-        "semantic_id": 43,
-        "extent_xyz_m": [
-          0.1015678346157074,
-          0.1015678197145462,
-          0.22795641422271729
-        ],
-        "selection_score": 0.09717250436544417
-      },
-      {
-        "handle": "/cvhci/temp/yyang/Multi_view_world_model/habitat/data/versioned_data/hssd-hab/objects/decomposed/ab541ddf6a38484c5fa53f5f642d8897133519c7/ab541ddf6a38484c5fa53f5f642d8897133519c7_part_3.object_config.json",
-        "semantic_id": 43,
-        "extent_xyz_m": [
-          0.12416920065879822,
-          0.12416920810937881,
-          0.2446836233139038
-        ],
-        "selection_score": 0.1067682273685932
-      },
-      {
-        "handle": "/cvhci/temp/yyang/Multi_view_world_model/habitat/data/versioned_data/hssd-hab/objects/decomposed/ab541ddf6a38484c5fa53f5f642d8897133519c7/ab541ddf6a38484c5fa53f5f642d8897133519c7_part_2.object_config.json",
-        "semantic_id": 43,
-        "extent_xyz_m": [
-          0.09472903609275818,
-          0.09427124261856079,
-          0.2577296495437622
-        ],
-        "selection_score": 0.1305940282344818
-      },
-      {
-        "handle": "/cvhci/temp/yyang/Multi_view_world_model/habitat/data/versioned_data/hssd-hab/objects/1/1dcc33676429b1c8cdef1b4780986001e1bb2625.object_config.json",
+        "canonical_id": "objects/1/1dcc33676429b1c8cdef1b4780986001e1bb2625.object_config.json",
         "semantic_id": 43,
         "extent_xyz_m": [
           0.252420037984848,
           0.3948459029197693,
           0.21998852491378784
         ],
-        "selection_score": 0.24984298944473265
+        "asset_fingerprint": "22e7e266b2cbdde114a3e4ba548cc342f1694b5d32c950e99e72b4bf62e0fb8e"
       },
       {
-        "handle": "/cvhci/temp/yyang/Multi_view_world_model/habitat/data/versioned_data/hssd-hab/objects/2/2497f6c429ad6112bd4c1f9a45164d960c742e0b.object_config.json",
+        "canonical_id": "objects/2/2497f6c429ad6112bd4c1f9a45164d960c742e0b.object_config.json",
         "semantic_id": 43,
         "extent_xyz_m": [
           0.3996070921421051,
           0.2875211238861084,
           0.23576557636260986
         ],
-        "selection_score": 0.3433676540851593
+        "asset_fingerprint": "e7cbca81d06e05313c353a5546bb72c76ddcb3d86bf79339e3bf2512533149a1"
+      },
+      {
+        "canonical_id": "objects/0/00c36e162937f13271f982b5dcafb4d3038e906a.object_config.json",
+        "semantic_id": 43,
+        "extent_xyz_m": [
+          0.5311604142189026,
+          0.08667250722646713,
+          0.341128945350647
+        ],
+        "asset_fingerprint": "64df3ef4a710f4d1c944cb3f4c9e52692286946cca4a9d147fcdf543f2f2091c"
+      },
+      {
+        "canonical_id": "objects/e/ed4fbbb8cc877cea34ff946b05c9da8b3690ee74.object_config.json",
+        "semantic_id": 43,
+        "extent_xyz_m": [
+          0.5065701603889465,
+          0.2916240394115448,
+          0.42754632234573364
+        ],
+        "asset_fingerprint": "b94afca35f1f32b4c0e2ec9a6a03ef80966030941404074faa259e03b2c05bc1"
+      }
+    ],
+    "bowl": [
+      {
+        "canonical_id": "objects/4/432ea22941c88f9849c68d2fc40f2ee62af3b303.object_config.json",
+        "semantic_id": 45,
+        "extent_xyz_m": [
+          0.30007627606391907,
+          0.14911559224128723,
+          0.30007627606391907
+        ],
+        "asset_fingerprint": "1031433e307a66f3bd135724a0063e0fe709dbb3c16b625d53800563e814e1ad"
+      },
+      {
+        "canonical_id": "objects/7/72d4bee536e3e39ae09d9d3248c36dbc644638ec.object_config.json",
+        "semantic_id": 45,
+        "extent_xyz_m": [
+          0.3760572075843811,
+          0.07617855817079544,
+          0.3761865794658661
+        ],
+        "asset_fingerprint": "8fe8a5e8c3f8fd02143d395839ba0e95e0b633f7a5e8fa9cd5662c0bfd1ab1ea"
+      },
+      {
+        "canonical_id": "objects/c/c816dc1bb177a739c7c52bbca6097e7e627a2214.object_config.json",
+        "semantic_id": 45,
+        "extent_xyz_m": [
+          0.4487886428833008,
+          0.1499999612569809,
+          0.44919338822364807
+        ],
+        "asset_fingerprint": "fd976c5ac42f7aaadabbd82d4181148aefede626bfda81e988163db837ccbd7f"
+      },
+      {
+        "canonical_id": "objects/3/3fbab665c4b892a6af7e97cf1780f1d57025eed9.object_config.json",
+        "semantic_id": 45,
+        "extent_xyz_m": [
+          0.5117000341415405,
+          0.1456245481967926,
+          0.5075699687004089
+        ],
+        "asset_fingerprint": "875d514b86e32a84150dcb3436d5faf32db94474390f8033c49c1500f8da77ca"
       }
     ],
     "box": [
       {
-        "handle": "/cvhci/temp/yyang/Multi_view_world_model/habitat/data/versioned_data/hssd-hab/objects/b/b1f493b30dcf305b4ca0a651eb6820f2abcd7777.object_config.json",
-        "semantic_id": 46,
-        "extent_xyz_m": [
-          0.14000004529953003,
-          0.02988951839506626,
-          0.09600024670362473
-        ],
-        "selection_score": 0.04505528610199688
-      },
-      {
-        "handle": "/cvhci/temp/yyang/Multi_view_world_model/habitat/data/versioned_data/hssd-hab/objects/0/04db2653cd2e68429e20be934b35ee9733138f6f.object_config.json",
-        "semantic_id": 46,
-        "extent_xyz_m": [
-          0.16844601929187775,
-          0.03449704498052597,
-          0.12002155184745789
-        ],
-        "selection_score": 0.07119749680161475
-      },
-      {
-        "handle": "/cvhci/temp/yyang/Multi_view_world_model/habitat/data/versioned_data/hssd-hab/objects/decomposed/9a1c224cd11be35a5c28347de7868674f56789da/9a1c224cd11be35a5c28347de7868674f56789da_part_2.object_config.json",
-        "semantic_id": 46,
-        "extent_xyz_m": [
-          0.07726561278104782,
-          0.06485748291015625,
-          0.06632306426763535
-        ],
-        "selection_score": 0.09030564576387407
-      },
-      {
-        "handle": "/cvhci/temp/yyang/Multi_view_world_model/habitat/data/versioned_data/hssd-hab/objects/2/2382da50dbb82b1a316461a792b383441edf1a9f.object_config.json",
-        "semantic_id": 46,
-        "extent_xyz_m": [
-          0.23999938368797302,
-          0.1210051029920578,
-          0.18448883295059204
-        ],
-        "selection_score": 0.10050193518400191
-      },
-      {
-        "handle": "/cvhci/temp/yyang/Multi_view_world_model/habitat/data/versioned_data/hssd-hab/objects/decomposed/dd56f602c6c29a97bbff71f4e48f07454ec97b62/dd56f602c6c29a97bbff71f4e48f07454ec97b62_part_4.object_config.json",
-        "semantic_id": 46,
-        "extent_xyz_m": [
-          0.06690821051597595,
-          0.056163400411605835,
-          0.057432521134614944
-        ],
-        "selection_score": 0.10501008927822114
-      },
-      {
-        "handle": "/cvhci/temp/yyang/Multi_view_world_model/habitat/data/versioned_data/hssd-hab/objects/8/88a74bcb73482e4f54859bbf8b71b6d2751e7bb9.object_config.json",
-        "semantic_id": 46,
-        "extent_xyz_m": [
-          0.12999984622001648,
-          0.33044442534446716,
-          0.12999984622001648
-        ],
-        "selection_score": 0.11522236645221712
-      },
-      {
-        "handle": "/cvhci/temp/yyang/Multi_view_world_model/habitat/data/versioned_data/hssd-hab/objects/2/2e5aaec96e52025365e10b73e2b08e515adabeaf.object_config.json",
+        "canonical_id": "objects/2/2e5aaec96e52025365e10b73e2b08e515adabeaf.object_config.json",
         "semantic_id": 46,
         "extent_xyz_m": [
           0.20000000298023224,
           0.23997347056865692,
           0.20000001788139343
         ],
-        "selection_score": 0.11998675316572188
+        "asset_fingerprint": "ca5eff04f65593ec19022a4228b9886bfe4e46f01622e39fcc1f5580526f7e78"
       },
       {
-        "handle": "/cvhci/temp/yyang/Multi_view_world_model/habitat/data/versioned_data/hssd-hab/objects/3/38fd5de657fcd3da13185163b8c66fe4bb260070.object_config.json",
+        "canonical_id": "objects/0/04db2653cd2e68429e20be934b35ee9733138f6f.object_config.json",
         "semantic_id": 46,
         "extent_xyz_m": [
-          0.2800000011920929,
-          0.1300189346075058,
-          0.20000000298023224
+          0.16844601929187775,
+          0.03449704498052597,
+          0.12002155184745789
         ],
-        "selection_score": 0.14500946849584578
+        "asset_fingerprint": "5da7a286a3abcd05cd084cec2355c0c9d54acc228792e358c32e136b64989b41"
       },
       {
-        "handle": "/cvhci/temp/yyang/Multi_view_world_model/habitat/data/versioned_data/hssd-hab/objects/c/cfcd5e10947538265eb2e26effddbffc21209b3d.object_config.json",
+        "canonical_id": "objects/2/2382da50dbb82b1a316461a792b383441edf1a9f.object_config.json",
+        "semantic_id": 46,
+        "extent_xyz_m": [
+          0.23999938368797302,
+          0.1210051029920578,
+          0.18448883295059204
+        ],
+        "asset_fingerprint": "3ed063290657c6d863634c220580acbe611f2cb18b58f43a002e40a5cdc676fb"
+      },
+      {
+        "canonical_id": "objects/c/cfcd5e10947538265eb2e26effddbffc21209b3d.object_config.json",
         "semantic_id": 46,
         "extent_xyz_m": [
           0.26410895586013794,
           0.16192437708377838,
           0.2636401951313019
         ],
-        "selection_score": 0.14507114440202712
+        "asset_fingerprint": "e2543af3037498a1061aa90646e67cec958eb3b8f5b0e322f567737069cf8a8a"
+      }
+    ],
+    "cup": [
+      {
+        "canonical_id": "objects/0/0614900c76c99d7781721d3d9053dcf5115ee3d5.object_config.json",
+        "semantic_id": 99,
+        "extent_xyz_m": [
+          0.15078145265579224,
+          0.1469999998807907,
+          0.15078145265579224
+        ],
+        "asset_fingerprint": "eb9d069a2d019108130ea10c5771bad80b88b757c0b30cba7e1efa6bd9937c0d"
       },
       {
-        "handle": "/cvhci/temp/yyang/Multi_view_world_model/habitat/data/versioned_data/hssd-hab/objects/a/a2b5c83d8ed4b9acc659b4c27cb258d7ffa9d2b7.object_config.json",
-        "semantic_id": 46,
+        "canonical_id": "objects/7/73cae0c00c31e895cbf8c6ac2bcc3ce718d03b21.object_config.json",
+        "semantic_id": 99,
         "extent_xyz_m": [
-          0.3100000023841858,
-          0.15016214549541473,
-          0.20000000298023224
+          0.1419038027524948,
+          0.2508659362792969,
+          0.16457727551460266
         ],
-        "selection_score": 0.18508107513189315
+        "asset_fingerprint": "e7079129a4c3b3ea05a48a9a43c24b118732a92372a17178bbf29a1ce25721a8"
       },
       {
-        "handle": "/cvhci/temp/yyang/Multi_view_world_model/habitat/data/versioned_data/hssd-hab/objects/b/b90db13497b5b84599e9bac16913b5e57492dc3a.object_config.json",
-        "semantic_id": 46,
+        "canonical_id": "objects/0/076a39bd580b76413ea7128c6b124a8ef7231b76.object_config.json",
+        "semantic_id": 99,
         "extent_xyz_m": [
-          0.3100000023841858,
-          0.15016214549541473,
-          0.20000000298023224
+          0.15239286422729492,
+          0.07411892712116241,
+          0.15239286422729492
         ],
-        "selection_score": 0.18508107513189315
+        "asset_fingerprint": "fec3e63e6de2a55d4b967d50fb2dd54905cc0199c0b9fa5fd1c9f14fdc63cfe5"
       },
       {
-        "handle": "/cvhci/temp/yyang/Multi_view_world_model/habitat/data/versioned_data/hssd-hab/objects/5/5faf4424aa60c7cc0c6bbb85393386a745084935.object_config.json",
-        "semantic_id": 46,
+        "canonical_id": "objects/7/7803eed87c55068705e00ddc50b6060a67fc492e.object_config.json",
+        "semantic_id": 99,
         "extent_xyz_m": [
-          0.25,
-          0.28519439697265625,
-          0.25
+          0.059407517313957214,
+          0.15272966027259827,
+          0.059404000639915466
         ],
-        "selection_score": 0.19259719848632811
+        "asset_fingerprint": "9481dfd050d1c28cea836483735d947a5e4f2c8e76f5e5cf23004075da7c7c9f"
+      }
+    ],
+    "toy": [
+      {
+        "canonical_id": "objects/2/2b4287661123d588b12fa8ec0d04c93eef1a6b28.object_config.json",
+        "semantic_id": 364,
+        "extent_xyz_m": [
+          0.14246246218681335,
+          0.14316488802433014,
+          0.18597523868083954
+        ],
+        "asset_fingerprint": "aa5a3b371c852251772f76e6ce86faf392aabe222ca57bedb3fec74a0e0725ad"
       },
       {
-        "handle": "/cvhci/temp/yyang/Multi_view_world_model/habitat/data/versioned_data/hssd-hab/objects/1/1e6795498f065062e0eb70d318cd34337dbcd952.object_config.json",
-        "semantic_id": 46,
+        "canonical_id": "objects/e/e24cb1a2f2c4a167e82e80066b467940ae18bf9f.object_config.json",
+        "semantic_id": 364,
         "extent_xyz_m": [
-          0.24000191688537598,
-          0.0799998864531517,
-          0.3700004816055298
+          0.12318047136068344,
+          0.18462207913398743,
+          0.12318047136068344
         ],
-        "selection_score": 0.2500005383789539
+        "asset_fingerprint": "df35aa7ea4cb87ddef29b2c519a542179b016e5e8a7658972c7f1a986b456f6d"
       },
       {
-        "handle": "/cvhci/temp/yyang/Multi_view_world_model/habitat/data/versioned_data/hssd-hab/objects/b/b36f892a0b4421b9c77273b859da50d85e101214.object_config.json",
-        "semantic_id": 46,
+        "canonical_id": "objects/7/7c3711c5b571180ed66793c5f7dd2ead50469e0b.object_config.json",
+        "semantic_id": 364,
         "extent_xyz_m": [
-          0.3500000536441803,
-          0.25,
-          0.28999966382980347
+          0.08779998123645782,
+          0.16365115344524384,
+          0.08775393664836884
         ],
-        "selection_score": 0.2750000536441803
+        "asset_fingerprint": "ff3055547e587568a8c4b938cda55e6d0fb4f3d994b7acd27b1272756fcf5a36"
       },
       {
-        "handle": "/cvhci/temp/yyang/Multi_view_world_model/habitat/data/versioned_data/hssd-hab/objects/8/8ff1977bc0c68f2b436c7938494e65f8b427b5ed.object_config.json",
-        "semantic_id": 46,
+        "canonical_id": "objects/x/xxxxa30bd9d6x8e97x4ab3x9c6ax5b006db53f32.object_config.json",
+        "semantic_id": 364,
         "extent_xyz_m": [
-          0.37015172839164734,
-          0.22856199741363525,
-          0.2923739552497864
+          0.060539647936820984,
+          0.21048209071159363,
+          0.11112656444311142
         ],
-        "selection_score": 0.28443272709846495
-      },
-      {
-        "handle": "/cvhci/temp/yyang/Multi_view_world_model/habitat/data/versioned_data/hssd-hab/objects/a/a162b54f72a015f8066899145788fcfc278e5bf1.object_config.json",
-        "semantic_id": 46,
-        "extent_xyz_m": [
-          0.37015172839164734,
-          0.22856199741363525,
-          0.2923739552497864
-        ],
-        "selection_score": 0.28443272709846495
-      },
-      {
-        "handle": "/cvhci/temp/yyang/Multi_view_world_model/habitat/data/versioned_data/hssd-hab/objects/b/bbf950688bbeefa6b4515267f3faa6d05cbcf3c5.object_config.json",
-        "semantic_id": 46,
-        "extent_xyz_m": [
-          0.37015172839164734,
-          0.22856199741363525,
-          0.2923739552497864
-        ],
-        "selection_score": 0.28443272709846495
-      },
-      {
-        "handle": "/cvhci/temp/yyang/Multi_view_world_model/habitat/data/versioned_data/hssd-hab/objects/e/e17c6ae756035c27bb5e084b51ff72dc8f90480c.object_config.json",
-        "semantic_id": 46,
-        "extent_xyz_m": [
-          0.36000001430511475,
-          0.25,
-          0.23000000417232513
-        ],
-        "selection_score": 0.28500001430511473
-      },
-      {
-        "handle": "/cvhci/temp/yyang/Multi_view_world_model/habitat/data/versioned_data/hssd-hab/objects/b/b44b3601e32d9c2501796de2481bb9f4d8490b7e.object_config.json",
-        "semantic_id": 46,
-        "extent_xyz_m": [
-          0.30999556183815,
-          0.31000444293022156,
-          0.33000028133392334
-        ],
-        "selection_score": 0.2850025027990341
-      },
-      {
-        "handle": "/cvhci/temp/yyang/Multi_view_world_model/habitat/data/versioned_data/hssd-hab/objects/f/fb0eaad75bf1f0175cb8d69beb9937f09c179c3f.object_config.json",
-        "semantic_id": 46,
-        "extent_xyz_m": [
-          0.254793643951416,
-          0.12068037688732147,
-          0.42634496092796326
-        ],
-        "selection_score": 0.286685149371624
+        "asset_fingerprint": "47d47bf48ae2bcc3ef589b2e00c1cac70a11a64c53f5f19dd3b6a8a840de13f8"
       }
     ]
   }

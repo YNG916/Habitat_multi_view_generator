@@ -20,7 +20,8 @@ def main():
     parser.add_argument("--config", default="configs/collector_hssd.json")
     parser.add_argument("--output-root")
     parser.add_argument("--scene", action="append", dest="scenes")
-    parser.add_argument("--floor", help="Use with a single --scene")
+    parser.add_argument("--floor",help="Use with one --scene")
+    parser.add_argument("--region",help="Use with one --scene/--floor")
     parser.add_argument("--num-states", type=int)
     parser.add_argument("--num-edits-per-state", type=int)
     parser.add_argument("--stage", choices=["all","level1","level2","validate"], default="all")
@@ -37,7 +38,7 @@ def main():
     selected = []
     if args.scenes:
         for scene_id in args.scenes:
-            selected.extend(config.collection_specs(scene_id, args.floor))
+            selected.extend(config.collection_specs(scene_id,args.floor,args.region))
     else:
         selected = config.collection_specs()
     regimes = args.regimes.split(",") if args.regimes else None
@@ -48,7 +49,7 @@ def main():
         "protocol_version":config.protocol_version,
         "generation_fingerprint":config.generation_fingerprint(),
         "started_at_utc":utc_now(),
-        "selected_scene_floors":[f"{s.scene_id}/{f.floor_id}" for s,f in selected],
+        "selected_scene_floor_regions":[f"{s.scene_id}/{f.floor_id}/{r.region_id}" for s,f,r in selected],
         "stage":args.stage,"new_level1_states":{},"new_level2_edits":{},
     }
     write_json(root/"generation_report.json",report)
@@ -65,11 +66,15 @@ def main():
     run_l1=args.stage in {"all","level1"}
     run_l2=args.stage in {"all","level2"}
     if run_l1 or run_l2:
-        for scene,floor in selected:
-            key=f"{scene.scene_id}/{floor.floor_id}"
-            with HabitatBackend(config,scene,floor) as backend:
+        targets=config.state_targets(selected,args.num_states)
+        report["planned_states_by_region"]={
+            f"{s.scene_id}/{f.floor_id}/{r.region_id}":target
+            for s,f,r,target in targets
+        }
+        for scene,floor,region,target in targets:
+            key=f"{scene.scene_id}/{floor.floor_id}/{region.region_id}"
+            with HabitatBackend(config,scene,floor,region) as backend:
                 if run_l1:
-                    target=args.num_states if args.num_states is not None else config.states_for_scene(scene.scene_id)
                     paths=collect_level1(backend,config,root,target)
                     report["new_level1_states"][key]=len(paths)
                     write_json(root/"generation_report.json",report)

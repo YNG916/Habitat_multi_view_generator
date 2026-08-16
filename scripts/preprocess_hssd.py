@@ -16,7 +16,9 @@ def main():
     parser.add_argument("--registry-path")
     parser.add_argument("--split-manifest-path")
     parser.add_argument("--limit", type=int)
-    parser.add_argument("--preview-root", default="outputs/hssd_preprocess_previews")
+    parser.add_argument(
+        "--preview-root", default="outputs/hssd_region_preprocess_full_v3"
+    )
     args = parser.parse_args()
     config = load_config(
         args.config,

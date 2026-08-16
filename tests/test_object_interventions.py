@@ -10,7 +10,7 @@ class ObjectInterventionTests(unittest.TestCase):
     def setUp(self):
         robot = RobotState.create("robot_01", [0.0, 0.2, 0.0], 0.0, 0.8, 64, 64, 90, 0.05, 20)
         obj = ObjectState(
-            "object_001", "book", "frl_apartment_book_01.object_config.json",
+            "object_001", "book", "objects/book_a.object_config.json",
             [0.5, 0.3, 0.5], [0.0, 0.0, 0.0, 1.0], bbox={
                 "min_world": [0.4, 0.2, 0.4], "max_world": [0.6, 0.4, 0.6],
                 "dimensions_m": [0.2, 0.2, 0.2],

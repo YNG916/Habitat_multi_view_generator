@@ -12,6 +12,7 @@ from PIL import Image
 from .bev import BevMapping
 from .coordinates import forward_from_quaternion, yaw_to_quaternion_xyzw
 from .serialization import load_numeric
+from .protocol import benchmark_visible_observers
 from .state_io import read_json
 
 
@@ -193,13 +194,52 @@ def validate_state_dir(
             )
             if distance < minimum_separation_m:
                 errors.append(f"robot separation {distance:.3f} m is below {minimum_separation_m:.3f} m")
-    for key, expected_dtype in [("height", np.float32), ("occupancy", np.uint8)]:
+    bev_arrays={}
+    for key,expected_dtype in (
+        ("height",np.float32),("occupancy",np.uint8),("region_mask",np.uint8),
+        ("navigable_region_mask",np.uint8),
+    ):
         try:
-            array = load_numeric(state_dir / bev["files"][key])
-            if array.shape != (mapping.height, mapping.width) or array.dtype != expected_dtype:
+            array=load_numeric(state_dir/bev["files"][key])
+            bev_arrays[key]=array
+            if array.shape!=(mapping.height,mapping.width) or array.dtype!=expected_dtype:
                 errors.append(f"BEV {key}: invalid shape/dtype {array.shape}/{array.dtype}")
         except Exception as exc:
             errors.append(f"BEV {key}: {exc}")
+    region_mask_array=bev_arrays.get("region_mask")
+    occupancy_array=bev_arrays.get("occupancy")
+    navigable_region_array=bev_arrays.get("navigable_region_mask")
+    if occupancy_array is not None:
+        values=set(map(int,np.unique(occupancy_array)))
+        if not values.issubset({0,1}) or 1 not in values:
+            errors.append("BEV occupancy must be a nonempty binary mask")
+    if navigable_region_array is not None:
+        values=set(map(int,np.unique(navigable_region_array)))
+        if not values.issubset({0,1}) or 1 not in values:
+            errors.append("BEV navigable_region_mask must be a nonempty binary mask")
+        if occupancy_array is not None and region_mask_array is not None:
+            expected=((occupancy_array==1)&(region_mask_array==1)).astype(np.uint8)
+            if not np.array_equal(navigable_region_array,expected):
+                errors.append("BEV navigable_region_mask is inconsistent")
+    if region_mask_array is not None:
+        values=set(map(int,np.unique(region_mask_array)))
+        if not values.issubset({0,1}) or 1 not in values:
+            errors.append("BEV region_mask must be a nonempty binary mask")
+        for robot in metadata["robots"]:
+            u,v=mapping.world_to_bev(
+                robot["base_position_world"][0],robot["base_position_world"][2]
+            )
+            row=int(round(v));col=int(round(u))
+            if not (0<=row<mapping.height and 0<=col<mapping.width):
+                errors.append(f"{robot['robot_id']}: region-mask projection outside BEV")
+            elif int(region_mask_array[row,col])!=1:
+                errors.append(f"{robot['robot_id']}: base is outside registered region_mask")
+            if occupancy_array is not None and 0<=row<mapping.height and 0<=col<mapping.width and int(occupancy_array[row,col])==0:
+                errors.append(f"{robot['robot_id']}: base is outside registered occupancy")
+    if metadata.get("bev_scope")!="semantic_region" or bev.get("bev_scope")!="semantic_region":
+        errors.append("state/BEV scope is not semantic_region")
+    if not metadata.get("region_id") or metadata.get("region_id")!=bev.get("region_id"):
+        errors.append("state/BEV region_id mismatch")
     if "semantic" in bev["files"]:
         try:
             bev_semantic = load_numeric(state_dir / bev["files"]["semantic"])
@@ -278,11 +318,11 @@ def validate_dataset_manifest(root: Path, config=None) -> List[str]:
         return [f"cannot read dataset.json: {exc}"]
     disk_states = {
         str(path.parent.relative_to(root))
-        for path in root.glob("scenes/*/floors/*/states/*/state.json")
+        for path in root.glob("scenes/*/floors/*/regions/*/states/*/state.json")
     }
     disk_edits = {
         str(path.relative_to(root))
-        for path in root.glob("interventions/*/*/edit_*.json")
+        for path in root.glob("interventions/*/*/*/edit_*.json")
     }
     indexed_states = set(dataset.get("states", []))
     indexed_edits = set(dataset.get("interventions", []))
@@ -369,7 +409,7 @@ def _regime_parameter_value(intervention) -> tuple:
 
 def validate_dataset(root: Path, config=None) -> Dict[str, object]:
     root = Path(root)
-    state_paths = sorted(root.glob("scenes/*/floors/*/states/*/state.json"))
+    state_paths = sorted(root.glob("scenes/*/floors/*/regions/*/states/*/state.json"))
     report: Dict[str, object] = {"root": str(root), "states_checked": len(state_paths), "errors": {}}
     manifest_errors = validate_dataset_manifest(root, config)
     if manifest_errors:
@@ -377,17 +417,18 @@ def validate_dataset(root: Path, config=None) -> Dict[str, object]:
     active_backend = None
     active_target = None
 
-    def backend_for_target(scene_id: str, floor_id: str):
+    def backend_for_target(scene_id:str,floor_id:str,region_id:str):
         nonlocal active_backend, active_target
         if config is None:
             return None
-        target = (scene_id, floor_id)
+        target=(scene_id,floor_id,region_id)
         if active_target != target:
             if active_backend is not None:
                 active_backend.close()
             from .habitat_backend import HabitatBackend
             scene = config.registry().scene(scene_id)
-            active_backend = HabitatBackend(config, scene, scene.floor(floor_id))
+            floor=scene.floor(floor_id)
+            active_backend=HabitatBackend(config,scene,floor,floor.region(region_id))
             active_target = target
         return active_backend
 
@@ -395,13 +436,14 @@ def validate_dataset(root: Path, config=None) -> Dict[str, object]:
         for state_json in state_paths:
             metadata = read_json(state_json)
             scene_id = metadata["scene_id"]
-            floor_id = metadata["floor_id"]
+            floor_id=metadata["floor_id"]
+            region_id=metadata["region_id"]
             if metadata.get("dataset_source") != "hssd":
                 report["errors"][str(state_json.parent.relative_to(root))] = [
                     "state dataset_source is not hssd"
                 ]
                 continue
-            backend = backend_for_target(scene_id, floor_id)
+            backend=backend_for_target(scene_id,floor_id,region_id)
             pathfinder = backend.sim.pathfinder if backend is not None else None
             errors = validate_state_dir(
                 state_json.parent,
@@ -423,7 +465,10 @@ def validate_dataset(root: Path, config=None) -> Dict[str, object]:
             if config is not None:
                 from .state_io import load_world_state
                 world_state = load_world_state(state_json.parent)
-                backend = backend_for_target(scene_id, floor_id)
+                backend=backend_for_target(scene_id,floor_id,region_id)
+                if world_state.region_id!=backend.region_id: errors.append("WorldState region_id does not match registry")
+                for robot in world_state.robots:
+                    if not backend.point_in_region(robot.base_position_world): errors.append(f"{robot.robot_id}: outside selected semantic region")
                 for obj in world_state.objects:
                     if not obj.active:
                         continue
@@ -479,7 +524,7 @@ def validate_dataset(root: Path, config=None) -> Dict[str, object]:
                         )
             if errors:
                 report["errors"][str(state_json.parent.relative_to(root))] = errors
-        for edit_path in sorted(root.glob("interventions/*/*/edit_*.json")):
+        for edit_path in sorted(root.glob("interventions/*/*/*/edit_*.json")):
             edit = read_json(edit_path)
             relative_edit = str(edit_path.relative_to(root))
             edit_errors = []
@@ -523,9 +568,33 @@ def validate_dataset(root: Path, config=None) -> Dict[str, object]:
                         "canonical instruction is not equivalent to structured intervention"
                     )
 
+                before_target=(
+                    before.robot(intervention.target_id)
+                    if intervention.target_id.startswith("robot_")
+                    else before.object(intervention.target_id)
+                )
+                after_target=(
+                    after.robot(intervention.target_id)
+                    if intervention.target_id.startswith("robot_")
+                    else after.object(intervention.target_id)
+                )
+                minimum=int(config.min_target_visible_observers) if config is not None else 1
+                before_views=benchmark_visible_observers(before_target)
+                after_views=benchmark_visible_observers(after_target)
+                if before_views<minimum:
+                    edit_errors.append("intervention target is not visible before the edit")
+                if intervention.type=="object_remove":
+                    if after_target.active or after_views!=0:
+                        edit_errors.append("removed object is active or visible after the edit")
+                elif after_views<minimum:
+                    edit_errors.append("intervention target is not visible after the edit")
+                declared=edit.get("observable_edit",{})
+                if declared.get("before_visible_views")!=before_views or declared.get("after_visible_views")!=after_views:
+                    edit_errors.append("observable_edit counts do not match state visibility")
+
                 if intervention.type == "robot_translate":
                     if config is not None:
-                        backend = backend_for_target(edit["scene_id"], edit["floor_id"])
+                        backend = backend_for_target(edit["scene_id"],edit["floor_id"],edit["region_id"])
                         validate_robot_translation(
                             before,
                             after,

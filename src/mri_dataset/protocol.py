@@ -165,6 +165,10 @@ def protocol_descriptor(config) -> dict:
         "intervention_type_weights": config.intervention_type_weights,
         "intervention_regimes": config.intervention_regimes,
         "minimum_target_visible_observers": config.min_target_visible_observers,
-        "benchmark_visibility_min_pixels": config.benchmark_visibility_min_pixels,
-        "seed_derivation": "sha256(base_seed|scene|floor|state|regime|slot|attempt)[:32-bit]",
+        "benchmark_visibility_min_pixels":config.benchmark_visibility_min_pixels,
+        "benchmark_visibility_min_fraction":config.benchmark_visibility_min_fraction,
+        "bev_scope":"semantic_region",
+        "region_context_margin_m":config.region_context_margin_m,
+        "controlled_object_pools":config.controlled_object_pools,
+        "seed_derivation":"sha256(base_seed|scene|floor|region|state|regime|slot|attempt)[:32-bit]",
     }

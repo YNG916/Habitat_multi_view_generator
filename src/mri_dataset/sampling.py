@@ -7,6 +7,7 @@ import numpy as np
 
 from .coordinates import normalize_angle
 from .world_state import RobotState
+from .regions import point_in_polygon_xz
 
 
 def _valid_position(pathfinder, point: np.ndarray, floor_y: float, min_obstacle: float, floor_tolerance: float) -> bool:
@@ -28,70 +29,79 @@ def sample_robot_positions(
     floor_tolerance_m: float,
     allowed_island_ids=None,
     representative_floor_y=None,
+    region_spec=None,
     max_tries: int = 1000,
 ) -> List[np.ndarray]:
+    """Sample one same-region cluster, retrying anchors when a pocket is tight."""
     pathfinder.seed(int(rng.integers(0, 2**31 - 1)))
-    allowed = (
-        sorted(map(int, allowed_island_ids))
+    allowed=(
+        sorted(map(int,allowed_island_ids))
         if allowed_island_ids is not None
         else list(range(int(pathfinder.num_islands)))
     )
     if not allowed:
         raise ValueError("No allowed NavMesh islands for the selected floor")
-    areas = np.asarray([pathfinder.island_area(index) for index in allowed], dtype=np.float64)
-    probabilities = areas / areas.sum()
-    anchor = None
-    for _ in range(max_tries):
-        island_id = allowed[int(rng.choice(len(allowed), p=probabilities))]
-        candidate = np.asarray(
-            pathfinder.get_random_navigable_point(100, island_id), dtype=np.float64
-        )
-        if not np.all(np.isfinite(candidate)):
-            continue
-        floor_y = (
-            float(candidate[1])
-            if representative_floor_y is None
-            else float(representative_floor_y)
-        )
-        if (
-            int(pathfinder.get_island(candidate)) in allowed
+    areas=np.asarray([pathfinder.island_area(index) for index in allowed],dtype=np.float64)
+    probabilities=areas/areas.sum()
+
+    def valid(point,floor_y,island_id):
+        return bool(
+            np.all(np.isfinite(point))
+            and int(pathfinder.get_island(point))==island_id
+            and (
+                region_spec is None
+                or point_in_polygon_xz(point,region_spec.semantic_polygon_world)
+            )
             and _valid_position(
-                pathfinder, candidate, floor_y,
-                min_obstacle_distance_m, floor_tolerance_m,
+                pathfinder,point,floor_y,min_obstacle_distance_m,floor_tolerance_m
             )
-        ):
-            anchor = candidate
-            break
-    if anchor is None:
-        raise RuntimeError("Could not sample a valid anchor robot position")
-    island = int(pathfinder.get_island(anchor))
-    positions = [anchor]
-    for robot_index in range(1, num_robots):
-        for _ in range(max_tries):
-            point = np.asarray(
-                pathfinder.get_random_navigable_point(100, island),
-                dtype=np.float64,
+        )
+
+    cluster_attempts=max(4,min(32,max_tries//50))
+    tries_per_robot=max(100,max_tries//cluster_attempts)
+    last_robot=1
+    for _ in range(cluster_attempts):
+        island_id=allowed[int(rng.choice(len(allowed),p=probabilities))]
+        anchor=None
+        for _ in range(tries_per_robot):
+            candidate=np.asarray(
+                pathfinder.get_random_navigable_point(100,island_id),dtype=np.float64
             )
-            if (
-                not np.all(np.isfinite(point))
-                or np.linalg.norm(point[[0, 2]] - anchor[[0, 2]])
-                > local_sampling_radius_m
-            ):
-                continue
-            if not _valid_position(
-                pathfinder, point, float(anchor[1]),
-                min_obstacle_distance_m, floor_tolerance_m,
-            ):
-                continue
-            if int(pathfinder.get_island(point)) != island:
-                continue
-            distances = [np.linalg.norm(point[[0, 2]] - old[[0, 2]]) for old in positions]
-            if min(distances) >= min_inter_robot_distance_m:
-                positions.append(point)
+            floor_y=(
+                float(candidate[1])
+                if representative_floor_y is None
+                else float(representative_floor_y)
+            )
+            if valid(candidate,floor_y,island_id):
+                anchor=candidate
                 break
-        else:
-            raise RuntimeError(f"Failed clustered sampling for robot {robot_index + 1}")
-    return positions
+        if anchor is None:
+            continue
+        positions=[anchor]
+        for robot_index in range(1,num_robots):
+            last_robot=robot_index+1
+            for _ in range(tries_per_robot):
+                point=np.asarray(
+                    pathfinder.get_random_navigable_point(100,island_id),dtype=np.float64
+                )
+                if not valid(point,float(anchor[1]),island_id):
+                    continue
+                if np.linalg.norm(point[[0,2]]-anchor[[0,2]])>local_sampling_radius_m:
+                    continue
+                distances=[
+                    np.linalg.norm(point[[0,2]]-old[[0,2]]) for old in positions
+                ]
+                if min(distances)>=min_inter_robot_distance_m:
+                    positions.append(point)
+                    break
+            else:
+                break
+        if len(positions)==num_robots:
+            return positions
+    raise RuntimeError(
+        f"Failed same-region clustered sampling for robot {last_robot} after "
+        f"{cluster_attempts} anchor attempts"
+    )
 
 
 def sample_yaws(
@@ -102,10 +112,10 @@ def sample_yaws(
 ) -> List[float]:
     selected_mode = mode
     if mode == "mixed":
-        selected_mode = "shared_region" if rng.random() < 0.65 else "random"
+        selected_mode = "shared_focus" if rng.random() < 0.65 else "random"
     if selected_mode == "random":
         return [float(rng.uniform(-math.pi, math.pi)) for _ in positions]
-    if selected_mode != "shared_region":
+    if selected_mode != "shared_focus":
         raise ValueError(f"Unknown heading mode: {mode}")
     target = np.mean(np.asarray(positions)[:, [0, 2]], axis=0)
     target += rng.normal(0.0, 0.4, size=2)

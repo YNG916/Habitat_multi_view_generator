@@ -8,6 +8,7 @@ from mri_dataset.bev import (
     habitat_orthographic_depth_to_metric,
     occupancy_from_pathfinder,
 )
+from mri_dataset.visualization import occupancy_visualization
 from mri_dataset.coordinates import forward_from_quaternion, yaw_to_quaternion_xyzw
 
 
@@ -73,7 +74,7 @@ class BevMappingTests(unittest.TestCase):
                 return np.array([0.0, 0.0, 0.0]), np.array([2.0, 1.0, 2.0])
 
             @staticmethod
-            def get_topdown_view(_meters_per_pixel, _floor_y):
+            def get_topdown_view(_meters_per_pixel, _floor_y, _eps):
                 return np.array([[1, 0], [0, 1]], dtype=bool)
 
         mapping = BevMapping(-1.0, 3.0, -1.0, 3.0, 5, 5)
@@ -85,6 +86,37 @@ class BevMappingTests(unittest.TestCase):
         self.assertEqual(occupancy[2, 2], 1)
         self.assertEqual(int(occupancy[0].sum()), 0)
         self.assertEqual(int(occupancy[:, 0].sum()), 0)
+        self.assertEqual(set(map(int,np.unique(occupancy))),{0,1})
+
+    def test_island_map_minus_one_is_filtered_before_uint8_conversion(self):
+        class FakePathfinder:
+            eps=None
+            @staticmethod
+            def get_bounds():
+                return np.array([0.,0.,0.]),np.array([2.,1.,2.])
+            @classmethod
+            def get_topdown_island_view(cls,_meters_per_pixel,_floor_y,eps):
+                cls.eps=eps
+                return np.array([[-1,4],[2,4]],dtype=np.int32)
+        mapping=BevMapping(0.,1.999,0.,1.999,2,2)
+        occupancy=occupancy_from_pathfinder(
+            FakePathfinder(),mapping,0.,allowed_island_ids=[4],
+            vertical_tolerance_m=.25,
+        )
+        np.testing.assert_array_equal(occupancy,[[0,1],[0,1]])
+        self.assertEqual(FakePathfinder.eps,.25)
+        self.assertEqual(occupancy.dtype,np.uint8)
+
+    def test_occupancy_visualization_rejects_nonbinary_ground_truth(self):
+        with self.assertRaisesRegex(ValueError,"must be binary"):
+            occupancy_visualization(np.array([[0,255]],dtype=np.uint8))
+        image=np.asarray(occupancy_visualization(
+            np.array([[0,1],[1,1]],dtype=np.uint8),
+            np.array([[0,0],[1,1]],dtype=np.uint8),
+        ))
+        np.testing.assert_array_equal(image[0,0],[0,0,0])
+        np.testing.assert_array_equal(image[0,1],[210,210,210])
+        np.testing.assert_array_equal(image[1,0],[35,190,85])
 
 
 if __name__ == "__main__":

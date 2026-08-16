@@ -29,8 +29,8 @@ class DatasetIndexTests(unittest.TestCase):
                 },
             )
 
-            factual = root / "scenes/102815859/floors/floor_00/states/state_000001"
-            derived = root / "scenes/102815859/floors/floor_00/states/state_after_000001"
+            factual = root / "scenes/102815859/floors/floor_00/regions/region_000_kitchen/states/state_000001"
+            derived = root / "scenes/102815859/floors/floor_00/regions/region_000_kitchen/states/state_after_000001"
             factual.mkdir(parents=True)
             derived.mkdir(parents=True)
             write_json(
@@ -39,6 +39,7 @@ class DatasetIndexTests(unittest.TestCase):
                     "scene_id": "102815859",
                     "dataset_source": "hssd",
                     "floor_id": "floor_00",
+                    "region_id": "region_000_kitchen",
                     "state_origin": "factual",
                     "parent_state_id": None,
                 },
@@ -49,11 +50,12 @@ class DatasetIndexTests(unittest.TestCase):
                     "scene_id": "102815859",
                     "dataset_source": "hssd",
                     "floor_id": "floor_00",
+                    "region_id": "region_000_kitchen",
                     "state_origin": "intervention_derived",
                     "parent_state_id": "state_000001",
                 },
             )
-            edit_path = root / "interventions/102815859/floor_00/edit_000001.json"
+            edit_path = root / "interventions/102815859/floor_00/region_000_kitchen/edit_000001.json"
             edit_path.parent.mkdir(parents=True)
             write_json(
                 edit_path,
@@ -61,6 +63,7 @@ class DatasetIndexTests(unittest.TestCase):
                     "scene_id": "102815859",
                     "dataset_source": "hssd",
                     "floor_id": "floor_00",
+                    "region_id": "region_000_kitchen",
                     "split": "train",
                     "benchmark_regime": "id",
                     "before_state_path": str(factual.relative_to(root)),
@@ -74,15 +77,15 @@ class DatasetIndexTests(unittest.TestCase):
                 dataset = json.load(handle)
             with (root / "splits/train.json").open(encoding="utf-8") as handle:
                 train = json.load(handle)
-            self.assertEqual(dataset["factual_states"], ["scenes/102815859/floors/floor_00/states/state_000001"])
+            self.assertEqual(dataset["factual_states"], ["scenes/102815859/floors/floor_00/regions/region_000_kitchen/states/state_000001"])
             self.assertEqual(
                 dataset["intervention_derived_states"],
-                ["scenes/102815859/floors/floor_00/states/state_after_000001"],
+                ["scenes/102815859/floors/floor_00/regions/region_000_kitchen/states/state_after_000001"],
             )
             self.assertEqual(train["states"], dataset["factual_states"])
             self.assertEqual(train["after_states"], dataset["intervention_derived_states"])
             self.assertEqual(
-                train["interventions"], ["interventions/102815859/floor_00/edit_000001.json"]
+                train["interventions"], ["interventions/102815859/floor_00/region_000_kitchen/edit_000001.json"]
             )
 
 

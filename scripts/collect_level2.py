@@ -12,6 +12,7 @@ def main():
     parser.add_argument("--root")
     parser.add_argument("--scene")
     parser.add_argument("--floor")
+    parser.add_argument("--region")
     parser.add_argument("--num-edits-per-state", "--num-edits", dest="num_edits", type=int)
     parser.add_argument("--type", default="mixed", choices=[
         "mixed","robot_translate","robot_rotate","object_translate",
@@ -22,14 +23,14 @@ def main():
     config = load_config(args.config, output_root=args.root)
     regimes = args.regimes.split(",") if args.regimes else None
     total = 0
-    for scene, floor in config.collection_specs(args.scene, args.floor):
-        with HabitatBackend(config, scene, floor) as backend:
+    for scene,floor,region in config.collection_specs(args.scene,args.floor,args.region):
+        with HabitatBackend(config,scene,floor,region) as backend:
             paths = collect_level2(
                 backend, config, config.output_path, args.num_edits,
                 None if args.type == "mixed" else args.type, regimes,
             )
         total += len(paths)
-        print(f"{scene.scene_id}/{floor.floor_id}: {len(paths)} new Level-2 edits")
+        print(f"{scene.scene_id}/{floor.floor_id}/{region.region_id}: {len(paths)} new Level-2 edits")
     print(f"Total new edits: {total}")
 
 

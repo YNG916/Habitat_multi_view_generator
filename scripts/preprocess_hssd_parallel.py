@@ -16,7 +16,9 @@ def main():
     parser=argparse.ArgumentParser(description="Parallel all-scene HSSD preprocessing")
     parser.add_argument("--config",default="configs/collector_hssd.json")
     parser.add_argument("--workers",type=int,default=4)
-    parser.add_argument("--preview-root",default="outputs/hssd_preprocess_previews")
+    parser.add_argument(
+        "--preview-root", default="outputs/hssd_region_preprocess_full_v3"
+    )
     args=parser.parse_args()
     if not 1<=args.workers<=8: raise ValueError("workers must be in [1,8]")
     config=load_config(args.config,require_preprocessed_registry=False)

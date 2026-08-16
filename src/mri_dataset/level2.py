@@ -70,6 +70,8 @@ def validate_robot_edit(backend, before, state, edit: Intervention) -> None:
         original_floor_y = float(
             before.robot(edit.target_id).base_position_world[1]
         )
+        if not backend.point_in_region(nav_target):
+            raise ValueError("Robot intervention crosses semantic region")
         if (
             abs(physical_floor_y - original_floor_y)
             > backend.config.floor_tolerance_m
@@ -103,6 +105,8 @@ def validate_object_edit(backend, state, target_id: str) -> None:
         or not backend.sim.pathfinder.is_navigable(floor_point)
     ):
         raise ValueError("Controlled object target is outside the navigable interior")
+    if not backend.point_in_region(floor_point):
+        raise ValueError("Controlled object intervention crosses semantic region")
     physical_floor_y = backend.floor_surface_y(floor_point)
     if abs(physical_floor_y - state.floor_y) > backend.config.floor_tolerance_m:
         raise ValueError("Controlled object target is outside the same physical floor")
@@ -125,7 +129,31 @@ def validate_object_edit(backend, state, target_id: str) -> None:
         )
 
 
-def _validate_edit(backend, before, after, edit: Intervention) -> None:
+def _validate_observable_transition(before,after,edit:Intervention,minimum:int)->None:
+    before_entity=(
+        before.robot(edit.target_id) if edit.target_id.startswith("robot_")
+        else before.object(edit.target_id)
+    )
+    after_entity=(
+        after.robot(edit.target_id) if edit.target_id.startswith("robot_")
+        else after.object(edit.target_id)
+    )
+    before_views=benchmark_visible_observers(before_entity)
+    after_views=benchmark_visible_observers(after_entity)
+    if before_views<int(minimum):
+        raise ValueError("Intervention target is not benchmark-visible before the edit")
+    if edit.type=="object_remove":
+        if after_entity.active or after_views!=0:
+            raise ValueError("Removed object must be inactive and invisible after the edit")
+    elif after_views<int(minimum):
+        raise ValueError("Intervention target is not benchmark-visible after the edit")
+
+
+def _validate_edit(backend,before,after,edit:Intervention)->None:
+    if before.region_id!=backend.region_id or after.region_id!=backend.region_id:
+        raise ValueError("Level-2 before/after region mismatch")
+    if before.bev and after.bev and before.bev.get("bounds_world")!=after.bev.get("bounds_world"):
+        raise ValueError("Level-2 before/after BEV frame mismatch")
     if edit.type.startswith("robot_"):
         validate_robot_edit(backend, before, after, edit)
     elif edit.type.startswith("object_"):
@@ -154,6 +182,7 @@ def _sampling_candidate(
         config.protocol_version,
         before.scene_id,
         before.floor_id,
+        before.region_id,
         before.state_id,
         regime,
         slot,
@@ -186,7 +215,10 @@ def _write_edit_record(
             "edit_id": path.stem,
             "scene_id": before.scene_id,
             "dataset_source": "hssd",
-            "floor_id": before.floor_id,
+            "floor_id":before.floor_id,
+            "region_id":before.region_id,
+            "region_category":before.region_category,
+            "bev_scope":"semantic_region",
             "split": split,
             "benchmark_regime": regime,
             "protocol_version": config.protocol_version,
@@ -210,9 +242,13 @@ def _write_edit_record(
                 if edit.target_id.startswith("robot_")
                 else before.object(edit.target_id)
             ),
-            "visibility_transition": visibility_transition(
-                before, after, edit.target_id
-            ),
+            "visibility_transition":visibility_transition(before,after,edit.target_id),
+            "observable_edit":{
+                "criterion":"visible_before_then_absent_after" if edit.type=="object_remove" else "visible_before_and_after",
+                "before_visible_views":benchmark_visible_observers(before.robot(edit.target_id) if edit.target_id.startswith("robot_") else before.object(edit.target_id)),
+                "after_visible_views":benchmark_visible_observers(after.robot(edit.target_id) if edit.target_id.startswith("robot_") else after.object(edit.target_id)),
+            },
+            "bev_frame_identical":before.bev.get("bounds_world")==after.bev.get("bounds_world"),
         },
     )
 
@@ -279,7 +315,7 @@ def collect_level2(
     initialize_dataset_root(root, config)
     before_dirs = sorted(
         root.glob(
-            f"scenes/{backend.scene_id}/floors/{backend.floor_id}/states/"
+            f"scenes/{backend.scene_id}/floors/{backend.floor_id}/regions/{backend.region_id}/states/"
             "state_[0-9][0-9][0-9][0-9][0-9][0-9]"
         )
     )
@@ -301,7 +337,7 @@ def collect_level2(
     if slots < 0:
         raise ValueError("num_edits_per_state cannot be negative")
 
-    intervention_dir = root / "interventions" / backend.scene_id / backend.floor_id
+    intervention_dir=root/"interventions"/backend.scene_id/backend.floor_id/backend.region_id
     intervention_dir.mkdir(parents=True, exist_ok=True)
     saved = []
     resumed = 0
@@ -309,8 +345,8 @@ def collect_level2(
     failures = Counter()
     for before_dir in before_dirs:
         before = load_world_state(before_dir)
-        if before.floor_id != backend.floor_id or before.dataset_source != "hssd":
-            raise ValueError("Level-2 source state does not match the HSSD floor backend")
+        if before.floor_id!=backend.floor_id or before.region_id!=backend.region_id or before.dataset_source!="hssd":
+            raise ValueError("Level-2 source state does not match region backend")
         for regime in selected_regimes:
             accepted_keys = set()
             for slot in range(1, slots + 1):
@@ -324,6 +360,8 @@ def collect_level2(
                     / backend.scene_id
                     / "floors"
                     / backend.floor_id
+                    / "regions"
+                    / backend.region_id
                     / "states"
                     / after_state_id
                 )
@@ -335,13 +373,16 @@ def collect_level2(
                     resumed += 1
                     with edit_path.open("r", encoding="utf-8") as handle:
                         import json
-                        accepted_keys.add(
-                            intervention_key(
-                                Intervention.from_dict(
-                                    json.load(handle)["structured_intervention"]
-                                )
-                            )
-                        )
+                        edit_record=json.load(handle)
+                    existing_edit=Intervention.from_dict(
+                        edit_record["structured_intervention"]
+                    )
+                    accepted_keys.add(intervention_key(existing_edit))
+                    contact_path=intervention_dir/f"{edit_id}_contact_sheet.png"
+                    if config.save_visualizations and not contact_path.is_file():
+                        before_after_contact_sheet(
+                            before_dir,after_dir,edit_record["instruction"]
+                        ).save(contact_path)
                     continue
                 if edit_path.exists() and not after_dir.exists():
                     raise RuntimeError(
@@ -379,7 +420,12 @@ def collect_level2(
                             )
                         after = apply_intervention(before, edit, after_state_id)
                         _validate_edit(backend, before, after, edit)
-                        save_rendered_state(backend, after, after_dir)
+                        save_rendered_state(
+                            backend,after,after_dir,
+                            post_render_validator=lambda rendered,_outputs: _validate_observable_transition(
+                                before,rendered,edit,config.min_target_visible_observers
+                            ),
+                        )
                         _write_edit_record(
                             edit_path,
                             root,
@@ -418,7 +464,9 @@ def collect_level2(
         intervention_dir / "level2_collection_status.json",
         {
             "scene_id": backend.scene_id,
-            "split": split,
+            "split":split,
+            "region_id":backend.region_id,
+            "region_category":backend.region_category,
             "regimes": selected_regimes,
             "factual_states": len(before_dirs),
             "target_edits_per_state_per_regime": slots,
