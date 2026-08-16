@@ -7,7 +7,7 @@
   "navmesh_cache_root": "data/hssd_processed/navmeshes",
   "controlled_object_registry": "configs/hssd_controlled_objects.json",
   "hssd_preprocess_overrides_path": "configs/hssd_preprocess_overrides.json",
-  "output_root": "outputs/mri_hssd_region_formal_v4",
+  "output_root": "outputs/mri_hssd_region_formal_2048",
   "width": 2048,
   "height": 2048,
   "bev_meters_per_pixel": 0.00625,

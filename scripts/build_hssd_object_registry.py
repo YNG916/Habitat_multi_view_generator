@@ -103,7 +103,7 @@ def main():
     parser=argparse.ArgumentParser(description="Build review-only whole-object HSSD candidate pools")
     parser.add_argument("--config",default="configs/collector_hssd.json")
     parser.add_argument("--output",default="data/hssd_processed/object_candidates.json")
-    parser.add_argument("--contact-sheet-root",default="outputs/hssd_object_candidate_sheets")
+    parser.add_argument("--contact-sheet-root",default="outputs/hssd_controlled_object_candidate_contact_sheets")
     parser.add_argument("--categories",default="bag,basket,book,bottle,bowl,box,can,cup,shoe,toy")
     parser.add_argument("--limit-per-category",type=int,default=20)
     parser.add_argument("--include-decomposed",action="store_true")

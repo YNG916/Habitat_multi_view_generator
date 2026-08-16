@@ -5,7 +5,7 @@ from pathlib import Path
 
 import numpy as np
 
-from mri_dataset.config import load_config
+from mri_dataset.config import _protocol_file_sha256, load_config
 from mri_dataset.protocol import intervention_key, sample_intervention, stable_seed
 from mri_dataset.serialization import load_numeric, save_numeric
 from mri_dataset.world_state import ObjectState, RobotState, WorldState
@@ -68,6 +68,20 @@ class FormalProtocolTests(unittest.TestCase):
         self.assertEqual(
             self.config.generation_fingerprint(), changed.generation_fingerprint()
         )
+
+    def test_review_preview_paths_do_not_change_protocol_hash(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "registry.json"
+            path.write_text(json.dumps({"regions": [{"id": "a", "preview_path": "old.png"}]}))
+            first = _protocol_file_sha256(path, ("preview_path", "preview_panels"))
+            path.write_text(json.dumps({"regions": [{"id": "a", "preview_path": "new.png"}]}))
+            self.assertEqual(
+                first, _protocol_file_sha256(path, ("preview_path", "preview_panels"))
+            )
+            path.write_text(json.dumps({"regions": [{"id": "b", "preview_path": "new.png"}]}))
+            self.assertNotEqual(
+                first, _protocol_file_sha256(path, ("preview_path", "preview_panels"))
+            )
 
 
     def test_formal_config_rejects_nonstandard_hssd_variants(self):

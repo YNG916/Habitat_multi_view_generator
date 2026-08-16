@@ -63,7 +63,7 @@ conda run --no-capture-output -n habitat \
   --scene 102344022 --scene 102344307 --scene 102344094 \
   --registry-path data/hssd_processed/scene_registry_region_pilot_v3.json \
   --split-manifest-path data/hssd_processed/split_manifest_region_pilot_v3.json \
-  --preview-root outputs/hssd_region_pilot_previews_v2
+  --preview-root outputs/hssd_eligible_region_previews
 ```
 
 全量 168 场景只生成 registry/NavMesh/预览，不生成正式图像数据：
@@ -72,7 +72,7 @@ conda run --no-capture-output -n habitat \
 conda run --no-capture-output -n habitat \
   python scripts/preprocess_hssd_parallel.py \
   --config configs/collector_hssd.json --workers 4 \
-  --preview-root outputs/hssd_region_preprocess_full_v3
+  --preview-root outputs/hssd_eligible_region_previews
 ```
 
 缓存复用同时校验 NavMesh 参数、NavMesh SHA‑256、预处理 schema、所有区域/楼层/BEV 阈值、scene instance SHA‑256 和 semantic region 文件 SHA‑256。
@@ -86,14 +86,14 @@ conda run --no-capture-output -n habitat \
   --stage all --validation full
 ```
 
-输出在 `outputs/mri_hssd_region_smoke_hd_v2`。可重复执行，完整 state/edit 会断点跳过；中断在 after-state 与 edit JSON 之间时会确定性恢复。
+输出在 `outputs/mri_hssd_region_smoke_768`。可重复执行，完整 state/edit 会断点跳过；中断在 after-state 与 edit JSON 之间时会确定性恢复。
 
 重建高清审阅图（不重新渲染）：
 
 ```bash
 conda run --no-capture-output -n habitat \
   python scripts/rebuild_contact_sheets.py \
-  --root outputs/mri_hssd_region_smoke_hd_v2
+  --root outputs/mri_hssd_region_smoke_768
 ```
 
 固定单个 region 调试：
@@ -116,7 +116,7 @@ conda run --no-capture-output -n habitat \
   --config configs/collector_hssd.json
 ```
 
-审核 `outputs/hssd_region_protocol_report_v3.json` 后才启动正式数据：
+审核 `outputs/hssd_region_protocol_report.json` 后才启动正式数据：
 
 ```bash
 conda run --no-capture-output -n habitat \

@@ -8,6 +8,29 @@ from typing import Any, Dict, List, Optional
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
+def _protocol_file_sha256(path: Path, ignored_json_keys=()):
+    """Hash protocol content while excluding review-only JSON metadata."""
+    if not path.is_file():
+        return "missing"
+    if not ignored_json_keys:
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+    ignored = set(ignored_json_keys)
+
+    def strip(value):
+        if isinstance(value, dict):
+            return {key: strip(item) for key, item in value.items() if key not in ignored}
+        if isinstance(value, list):
+            return [strip(item) for item in value]
+        return value
+
+    payload = json.dumps(
+        strip(json.loads(path.read_text(encoding="utf-8"))),
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode()
+    return hashlib.sha256(payload).hexdigest()
+
+
 @dataclass
 class CollectorConfig:
     """Configuration for the HSSD-only formal collector."""
@@ -249,11 +272,16 @@ class CollectorConfig:
         for key in ("output_root", "num_states", "num_states_by_split", "num_edits_per_state", "resume"):
             data.pop(key, None)
         data["_robot_proxy_assets_sha256"] = self.robot_proxy_asset_fingerprints()
-        for label, path in (
-            ("scene_registry", self.scene_registry_path), ("split_manifest", self.split_manifest_path),
-            ("controlled_objects", self.controlled_object_registry_path),
+        for label, path, ignored_keys in (
+            (
+                "scene_registry",
+                self.scene_registry_path,
+                ("preview_path", "preview_panels"),
+            ),
+            ("split_manifest", self.split_manifest_path, ()),
+            ("controlled_objects", self.controlled_object_registry_path, ()),
         ):
-            data[f"_{label}_sha256"] = hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else "missing"
+            data[f"_{label}_sha256"] = _protocol_file_sha256(path, ignored_keys)
         return hashlib.sha256(json.dumps(data, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
     def validate(self):

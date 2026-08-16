@@ -7,7 +7,7 @@
   "navmesh_cache_root": "data/hssd_processed/navmeshes",
   "controlled_object_registry": "configs/hssd_controlled_objects.json",
   "hssd_preprocess_overrides_path": "configs/hssd_preprocess_overrides.json",
-  "output_root": "outputs/mri_hssd_region_smoke_hd_v2",
+  "output_root": "outputs/mri_hssd_region_smoke_768",
   "max_scenes_per_split": {
     "train": 1,
     "val": 1,
