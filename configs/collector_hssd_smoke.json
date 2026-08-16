@@ -7,14 +7,14 @@
   "navmesh_cache_root": "data/hssd_processed/navmeshes",
   "controlled_object_registry": "configs/hssd_controlled_objects.json",
   "hssd_preprocess_overrides_path": "configs/hssd_preprocess_overrides.json",
-  "output_root": "outputs/mri_hssd_region_smoke_768",
+  "output_root": "outputs/mri_hssd_region_smoke",
   "max_scenes_per_split": {
     "train": 1,
     "val": 1,
     "test": 1
   },
-  "width": 768,
-  "height": 768,
+  "width": 2048,
+  "height": 2048,
   "bev_meters_per_pixel": 0.02,
   "num_states": 1,
   "num_edits_per_state": 1,
