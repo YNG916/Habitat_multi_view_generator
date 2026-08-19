@@ -7,7 +7,6 @@ from typing import List, Optional
 
 import numpy as np
 
-from .bev import compute_fov_overlap
 from .objects import controlled_object_collision_free
 from .sampling import build_robot_states, sample_robot_positions, sample_yaws
 from .protocol import protocol_descriptor, stable_seed
@@ -51,7 +50,6 @@ def make_world_state(backend, config, state_id: str, seed: int, deterministic_de
         region_context_margin_m=float(config.region_context_margin_m),
     )
     state.objects = sample_controlled_objects(backend, state, config, rng)
-    state.overlap = compute_fov_overlap(backend.mapping, robots, config.hfov_deg)
     validate_sampled_state(backend, state, config)
     return state
 
@@ -90,7 +88,8 @@ def sample_controlled_objects(backend,state,config,rng)->list:
     for index,(category,asset) in enumerate(choices,start=1):
         for _ in range(400):
             point=np.asarray(backend.sim.pathfinder.get_random_navigable_point(100,island),dtype=np.float64)
-            if not np.all(np.isfinite(point)) or not backend.point_in_region(point):continue
+            if not np.all(np.isfinite(point)):continue
+            if not backend.object_region_membership(point,state.floor_y)["passed"]:continue
             if np.linalg.norm(point[[0,2]]-anchor[[0,2]])>min(2.5,config.local_sampling_radius_m):continue
             object_floor_y=backend.floor_surface_y(point)
             if abs(object_floor_y-state.floor_y)>config.floor_tolerance_m:continue
@@ -127,6 +126,16 @@ def validate_sampled_state(backend, state, config) -> None:
             )
             if distance < config.min_inter_robot_distance_m:
                 raise ValueError(f"Robots violate separation: {distance:.3f} m")
+
+    for obj in state.objects:
+        membership = backend.object_region_membership(
+            obj.position_world, state.floor_y
+        )
+        if not membership["passed"]:
+            raise ValueError(
+                f"{obj.instance_id} is outside selected semantic region: "
+                + "; ".join(membership["reasons"])
+            )
 
     for robot in state.robots:
         collision = backend.entity_collision_report(state, robot.robot_id)
@@ -192,6 +201,74 @@ def initialize_dataset_root(root: Path, config) -> None:
             ),
         },
     )
+
+
+def floor_metadata(backend, config) -> dict:
+    """Serialize only fields owned by the persistent FloorSpec."""
+    floor = backend.floor_spec
+    return {
+        "dataset_source": "hssd",
+        "scene_id": backend.scene_id,
+        "floor_id": backend.floor_id,
+        "split": config.scene_split(backend.scene_id),
+        "cached_navmesh": backend.scene_spec.cached_navmesh_path,
+        "navmesh_sha256": backend.scene_spec.navmesh_sha256,
+        "navmesh_settings": backend.scene_spec.navmesh_settings,
+        "allowed_island_ids": floor.allowed_island_ids,
+        "representative_floor_y": floor.representative_floor_y,
+        "navigable_area_m2": floor.navigable_area_m2,
+        "navigable_bounds_world": floor.navigable_bounds_world,
+        "visual_bev_bounds_world": floor.visual_bev_bounds_world,
+        "bev_camera_height_m": floor.bev_camera_height_m,
+        "eligible": floor.eligible,
+        "rejection_reasons": floor.rejection_reasons,
+        "preprocessing_validation": floor.preprocessing_validation,
+    }
+
+
+def region_metadata(backend, config) -> dict:
+    """Serialize region-local geometry under the region directory."""
+    region = backend.region_spec
+    return {
+        "dataset_source": "hssd",
+        "scene_id": backend.scene_id,
+        "floor_id": backend.floor_id,
+        "region_id": backend.region_id,
+        "region_category": backend.region_category,
+        "split": config.scene_split(backend.scene_id),
+        "representative_floor_y": region.representative_floor_y,
+        "semantic_polygon_world": region.semantic_polygon_world,
+        "allowed_island_ids": region.allowed_island_ids,
+        "navigable_area_m2": region.navigable_area_m2,
+        "navigable_bounds_world": region.navigable_bounds_world,
+        "visual_bev_bounds_world": region.visual_bev_bounds_world,
+        "bev_camera_height_m": region.bev_camera_height_m,
+        "bev_scope": "semantic_region",
+        "region_context_margin_m": config.region_context_margin_m,
+        "eligible": region.eligible,
+        "rejection_reasons": region.rejection_reasons,
+        "preprocessing_validation": region.preprocessing_validation,
+    }
+
+
+def write_collection_metadata(backend, config, root: Path) -> tuple:
+    scene_dir = Path(root) / "scenes" / backend.scene_id
+    floor_dir = scene_dir / "floors" / backend.floor_id
+    region_dir = floor_dir / "regions" / backend.region_id
+    (region_dir / "states").mkdir(parents=True, exist_ok=True)
+    write_json(
+        scene_dir / "scene.json",
+        {
+            "dataset_source": "hssd",
+            "scene_id": backend.scene_id,
+            "split": config.scene_split(backend.scene_id),
+            "official_hssd_split": backend.scene_spec.official_split,
+            "rendered_scene_aabb": backend.scene_spec.rendered_scene_aabb,
+        },
+    )
+    write_json(floor_dir / "floor.json", floor_metadata(backend, config))
+    write_json(region_dir / "region.json", region_metadata(backend, config))
+    return floor_dir, region_dir
 
 
 def update_dataset_index(root: Path, require_referenced_after_states: bool = True) -> None:
@@ -344,51 +421,7 @@ def collect_level1(
     deterministic_debug: bool = False,
 ) -> List[Path]:
     initialize_dataset_root(root, config)
-    scene_dir = root / "scenes" / backend.scene_id
-    floor_dir=scene_dir/"floors"/backend.floor_id
-    region_dir=floor_dir/"regions"/backend.region_id
-    (region_dir/"states").mkdir(parents=True,exist_ok=True)
-    write_json(
-        scene_dir / "scene.json",
-        {
-            "dataset_source": "hssd",
-            "scene_id": backend.scene_id,
-            "split": config.scene_split(backend.scene_id),
-            "official_hssd_split": backend.scene_spec.official_split,
-            "rendered_scene_aabb": backend.scene_spec.rendered_scene_aabb,
-        },
-    )
-    write_json(
-        floor_dir / "floor.json",
-        {
-            "dataset_source": "hssd",
-            "scene_id": backend.scene_id,
-            "floor_id": backend.floor_id,
-            "split": config.scene_split(backend.scene_id),
-            "cached_navmesh": backend.scene_spec.cached_navmesh_path,
-            "navmesh_sha256": backend.scene_spec.navmesh_sha256,
-            "navmesh_settings": backend.scene_spec.navmesh_settings,
-            "allowed_island_ids": backend.floor_spec.allowed_island_ids,
-            "representative_floor_y": backend.floor_spec.representative_floor_y,
-            "navigable_area_m2": backend.floor_spec.navigable_area_m2,
-            "navmesh_bounds_world": [
-                backend.navmesh_bounds[0].tolist(), backend.navmesh_bounds[1].tolist()
-            ],
-            "render_bev_bounds_world": [
-                backend.render_bev_bounds[0].tolist(), backend.render_bev_bounds[1].tolist()
-            ],
-            "bev_camera_height_m": backend.floor_spec.bev_camera_height_m,
-        },
-    )
-    write_json(region_dir/"region.json",{
-        "dataset_source":"hssd","scene_id":backend.scene_id,"floor_id":backend.floor_id,
-        "region_id":backend.region_id,"region_category":backend.region_category,
-        "split":config.scene_split(backend.scene_id),"semantic_polygon_world":backend.region_spec.semantic_polygon_world,
-        "allowed_island_ids":backend.region_spec.allowed_island_ids,
-        "navigable_area_m2":backend.region_spec.navigable_area_m2,
-        "render_bev_bounds_world":[backend.render_bev_bounds[0].tolist(),backend.render_bev_bounds[1].tolist()],
-        "bev_camera_height_m":backend.region_spec.bev_camera_height_m,
-        "bev_scope":"semantic_region","region_context_margin_m":config.region_context_margin_m})
+    _, region_dir = write_collection_metadata(backend, config, root)
     saved = []
     skipped = []
     failures = Counter()

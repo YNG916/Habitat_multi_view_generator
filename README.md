@@ -97,6 +97,8 @@ conda run --no-capture-output -n habitat \
 
 缓存复用同时校验 NavMesh 参数、NavMesh SHA‑256、预处理 schema、所有区域/楼层/BEV 阈值、scene instance SHA‑256 和 semantic region 文件 SHA‑256。
 
+不带 `--scene/--scene-file/--limit` 是显式全量重建；带任一筛选参数则是安全的 subset update：只替换选中 scene，保留其余 registry 条目，按 `scene_id` 排序后一次原子发布。旧 registry 的 schema、HSSD 配置来源或预处理配置不一致时会硬错误，不会静默混合。
+
 ## 4. 高清 Pilot/Smoke
 
 ```bash
@@ -176,6 +178,8 @@ dataset_root/
 ```
 
 每个 state 还保存相机内外参、两两欧氏/测地距离、真实 asset identifier、bbox、可见像素/图像占比、机器人贴地报告、pinhole/orthographic depth 校验和 Bullet 碰撞/高度验证。
+
+`floor.json` 只保存 `FloorSpec` 的楼层级范围/统计；每个房间的 polygon、navigable/visual BEV bounds、BEV 高度和预处理统计只写入对应 `region.json`。对象的 `asset_identifier` 是跨机器重放的持久身份；`asset_handle` 仅保留为采集时 runtime 调试信息，重放不会依赖它。
 
 ## 测试
 

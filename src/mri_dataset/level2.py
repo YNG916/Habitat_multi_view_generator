@@ -93,23 +93,13 @@ def validate_object_edit(backend, state, target_id: str) -> None:
     obj = state.object(target_id)
     if not obj.active:
         return
-    query = np.asarray([obj.position_world[0], state.floor_y, obj.position_world[2]])
-    floor_point = np.asarray(backend.sim.pathfinder.snap_point(query), dtype=np.float64)
-    if (
-        not np.all(np.isfinite(floor_point))
-        or np.linalg.norm(
-            floor_point[[0, 2]]
-            - np.asarray(obj.position_world, dtype=np.float64)[[0, 2]]
+    membership = backend.object_region_membership(obj.position_world, state.floor_y)
+    if not membership["passed"]:
+        raise ValueError(
+            "Controlled object intervention leaves selected region: "
+            + "; ".join(membership["reasons"])
         )
-        > 1e-3
-        or not backend.sim.pathfinder.is_navigable(floor_point)
-    ):
-        raise ValueError("Controlled object target is outside the navigable interior")
-    if not backend.point_in_region(floor_point):
-        raise ValueError("Controlled object intervention crosses semantic region")
-    physical_floor_y = backend.floor_surface_y(floor_point)
-    if abs(physical_floor_y - state.floor_y) > backend.config.floor_tolerance_m:
-        raise ValueError("Controlled object target is outside the same physical floor")
+    physical_floor_y = float(membership["physical_floor_y"])
     edit_type = state.intervention.get("type")
     if edit_type == "object_translate":
         requested = np.asarray(state.intervention["displacement_m"], dtype=np.float64)

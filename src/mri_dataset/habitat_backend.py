@@ -15,9 +15,14 @@ from .coordinates import (
 )
 from .objects import (
     aabb_dict, handles_by_suffix, resolve_canonical_templates,
+    validate_controlled_object_identity,
 )
 from .world_state import ObjectState, WorldState
-from .regions import point_in_polygon_xz, region_mask
+from .regions import (
+    controlled_object_region_membership,
+    point_in_polygon_xz,
+    region_mask,
+)
 from .scene_registry import sha256_file
 
 
@@ -115,12 +120,16 @@ class HabitatBackend:
         self._load_proxy_templates()
         self._validate_proxy_dimensions()
         self.controlled_handles = self._resolve_controlled_handles()
-        self._controlled_identifiers = {
-            handle: canonical
+        self._runtime_handles_by_identifier = {
+            canonical: handle
             for category, handles in self.controlled_handles.items()
             for canonical, handle in zip(
                 self.config.controlled_object_pools[category], handles
             )
+        }
+        self._controlled_identifiers = {
+            handle: canonical
+            for canonical, handle in self._runtime_handles_by_identifier.items()
         }
 
     def _sensor(self, uuid, sensor_type, subtype, resolution, near, far):
@@ -283,6 +292,26 @@ class HabitatBackend:
             raise KeyError(f"Exact HSSD template handle is unavailable: {handle}")
         return handle
 
+    def runtime_handle_for_object_state(self, obj_state: ObjectState) -> str:
+        """Resolve portable state identity to this simulator's exact runtime handle."""
+        errors = validate_controlled_object_identity(
+            obj_state,
+            self.config.controlled_object_pools,
+            self.config.semantic_category_ids,
+        )
+        if errors:
+            raise KeyError(
+                f"Invalid controlled object {obj_state.instance_id}: "
+                + "; ".join(errors)
+            )
+        handle = self._runtime_handles_by_identifier.get(obj_state.asset_identifier)
+        if handle is None:
+            raise KeyError(
+                f"Canonical HSSD asset is unavailable in current runtime: "
+                f"{obj_state.asset_identifier}"
+            )
+        return self.resolve_runtime_handle(handle)
+
     @staticmethod
     def _agent_quaternion(quaternion_xyzw):
         from habitat_sim.utils.common import quat_from_coeffs
@@ -373,7 +402,8 @@ class HabitatBackend:
         for obj_state in state.objects:
             if obj_state.active:
                 self._spawn(
-                    obj_state.asset_handle, obj_state.position_world, obj_state.quaternion_world_xyzw,
+                    self.runtime_handle_for_object_state(obj_state),
+                    obj_state.position_world, obj_state.quaternion_world_xyzw,
                     obj_state.semantic_id, obj_state.instance_id,
                     collision_margin_m=0.0,
                 )
@@ -448,6 +478,17 @@ class HabitatBackend:
     def point_in_region(self, point) -> bool:
         return bool(point_in_polygon_xz(point,self.region_spec.semantic_polygon_world))
 
+    def object_region_membership(self, position_world, floor_y: float) -> dict:
+        return controlled_object_region_membership(
+            position_world,
+            floor_y,
+            self.floor_spec,
+            self.region_spec,
+            self.sim.pathfinder,
+            self.floor_surface_y,
+            self.config.floor_tolerance_m,
+        )
+
     def floor_surface_y(self, position_world) -> float:
         """Resolve physical floor Y below a same-floor NavMesh sample."""
         point = np.asarray(position_world, dtype=np.float64)
@@ -466,7 +507,7 @@ class HabitatBackend:
     def support_object_on_floor(self, obj_state: ObjectState, floor_y: float) -> None:
         """Set object Y from its collision AABB instead of preserving stale Y."""
         manager = self.sim.get_rigid_object_manager()
-        handle = self.resolve_runtime_handle(obj_state.asset_handle)
+        handle = self.runtime_handle_for_object_state(obj_state)
         rigid = manager.add_object_by_template_handle(handle)
         if rigid is None:
             raise RuntimeError(f"Could not instantiate controlled object template {handle}")

@@ -437,16 +437,60 @@ def preprocess_hssd_scene(config,scene_id,official_split,preview_root=None):
     finally:
         if sim is not None: sim.close()
 
+
+def merge_scene_registry(existing, updated_scenes, selected_scene_ids, template):
+    """Deterministically replace selected entries while preserving all others."""
+    selected = set(map(str, selected_scene_ids))
+    updates = list(updated_scenes)
+    update_ids = [scene.scene_id for scene in updates]
+    if len(update_ids) != len(set(update_ids)):
+        raise ValueError("Subset preprocessing produced duplicate scene IDs")
+    if set(update_ids) != selected:
+        raise ValueError("Subset preprocessing did not produce every selected scene")
+    preserved = {}
+    if existing is not None:
+        if existing.schema_version != template.schema_version:
+            raise ValueError("Existing SceneRegistry schema is incompatible")
+        if existing.dataset_source != template.dataset_source:
+            raise ValueError("Existing SceneRegistry dataset source is incompatible")
+        if existing.dataset_config_path != template.dataset_config_path:
+            raise ValueError("Existing SceneRegistry HSSD root/config is incompatible")
+        if existing.official_splits_path != template.official_splits_path:
+            raise ValueError("Existing SceneRegistry official split source is incompatible")
+        if existing.preprocessing_config != template.preprocessing_config:
+            raise ValueError(
+                "Existing SceneRegistry preprocessing fingerprint/config is stale; "
+                "run an explicit full rebuild"
+            )
+        preserved = {
+            scene.scene_id: scene
+            for scene in existing.scenes
+            if scene.scene_id not in selected
+        }
+    for scene in updates:
+        preserved[scene.scene_id] = scene
+    template.scenes = [preserved[scene_id] for scene_id in sorted(preserved)]
+    template.statistics = template.compute_statistics()
+    template.validate()
+    return template
+
 def preprocess_hssd(config,scene_ids:Optional[Iterable[str]]=None,limit=None,preview_root=None):
     official=load_official_hssd_splits(config.official_scene_splits_path); installed=discover_installed_hssd_scenes(config.dataset_config_path)
     lookup={scene:split for split,values in official.items() for scene in values}
     selected=sorted(set(scene_ids) if scene_ids is not None else set(lookup)&set(installed))
     if limit is not None:selected=selected[:int(limit)]
     if not selected or set(selected)-set(lookup): raise ValueError("No valid official HSSD scenes selected")
+    subset_update = scene_ids is not None or limit is not None
+    existing_registry = None
     existing={}
     if config.scene_registry_path.is_file():
-        try: existing={s.scene_id:s for s in SceneRegistry.load(config.scene_registry_path).scenes}
-        except (OSError,ValueError): existing={}
+        try:
+            existing_registry = SceneRegistry.load(config.scene_registry_path)
+        except (OSError,ValueError):
+            if subset_update:
+                raise
+        if existing_registry is not None:
+            existing={s.scene_id:s for s in existing_registry.scenes}
     nav_fp=navmesh_settings_fingerprint(navmesh_settings_dict(config)); scenes=[]
     for index,scene_id in enumerate(selected,1):
         scene_file=config.dataset_config_path.resolve().parent/"scenes"/f"{scene_id}.scene_instance.json"; sem_file=semantic_regions_path(config,scene_id)
@@ -457,8 +501,19 @@ def preprocess_hssd(config,scene_ids:Optional[Iterable[str]]=None,limit=None,pre
             cached_path and cached_path.is_file() and cached.navmesh_sha256==sha256_file(cached_path))
         print(f"[{index}/{len(selected)}] {'reusing' if reusable else 'preprocessing'} HSSD regions {scene_id}",flush=True)
         scenes.append(cached if reusable else preprocess_hssd_scene(config,scene_id,lookup[scene_id],preview_root))
-        SceneRegistry("hssd",_relative(config,config.dataset_config_path),_relative(config,config.official_scene_splits_path),
-            scenes,preprocessing_config=preprocessing_config_dict(config)).save(config.scene_registry_path)
+    template = SceneRegistry(
+        "hssd",
+        _relative(config,config.dataset_config_path),
+        _relative(config,config.official_scene_splits_path),
+        [],
+        preprocessing_config=preprocessing_config_dict(config),
+    )
+    registry = (
+        merge_scene_registry(existing_registry, scenes, selected, template)
+        if subset_update
+        else merge_scene_registry(None, scenes, selected, template)
+    )
+    registry.save(config.scene_registry_path)
     manifest=build_hssd_split_manifest(official,int(config.split_seed),float(config.internal_val_fraction),available_scene_ids=installed)
     manifest["official_splits_sha256"]=sha256_file(config.official_scene_splits_path); write_json(config.split_manifest_path,manifest)
     return SceneRegistry.load(config.scene_registry_path)

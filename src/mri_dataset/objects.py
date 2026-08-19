@@ -13,11 +13,9 @@ from .world_state import ObjectState
 
 def inspect_approved_object_registry(
     registry: dict,
-    dataset_root,
     semantic_category_ids=None,
 ) -> dict:
-    """Perform deterministic, Habitat-independent validation of the approved pool."""
-    root = Path(dataset_root).resolve()
+    """Validate approved-pool structure without requiring HSSD or Habitat."""
     errors = []
     records = []
     approved = registry.get("approved_assets")
@@ -101,49 +99,6 @@ def inspect_approved_object_registry(
             else:
                 item["extent_xyz_m_expected"] = [float(value) for value in extent]
 
-            source_path = None
-            if safe:
-                source_path = (root / canonical).resolve()
-                try:
-                    source_path.relative_to(root)
-                except ValueError:
-                    item["errors"].append("canonical_id resolves outside the HSSD dataset root")
-                    source_path = None
-            item["source_path"] = str(source_path) if source_path is not None else None
-            item["source_exists"] = bool(source_path and source_path.is_file())
-            if source_path is not None and not source_path.is_file():
-                item["errors"].append("source object config does not exist")
-            if source_path is not None and source_path.is_file():
-                actual_hash = hashlib.sha256(source_path.read_bytes()).hexdigest()
-                item["asset_fingerprint_actual"] = actual_hash
-                item["hash_ok"] = bool(actual_hash == fingerprint)
-                if actual_hash != fingerprint:
-                    item["errors"].append("asset fingerprint mismatch")
-                try:
-                    source_config = json.loads(source_path.read_text(encoding="utf-8"))
-                except (OSError, json.JSONDecodeError) as exc:
-                    item["errors"].append(f"cannot parse source object config: {exc}")
-                else:
-                    actual_semantic = source_config.get("semantic_id")
-                    item["semantic_id_source"] = actual_semantic
-                    if actual_semantic != semantic_id:
-                        item["errors"].append("source semantic_id does not match registry")
-                    item["source_up"] = source_config.get("up")
-                    item["source_front"] = source_config.get("front")
-                    up = np.asarray(source_config.get("up", []), dtype=np.float64)
-                    front = np.asarray(source_config.get("front", []), dtype=np.float64)
-                    orientation_ok = (
-                        up.shape == (3,) and front.shape == (3,)
-                        and np.all(np.isfinite(up)) and np.all(np.isfinite(front))
-                        and np.linalg.norm(up) > 0 and np.linalg.norm(front) > 0
-                        and float(np.dot(up / np.linalg.norm(up), [0, 1, 0])) > 0.999
-                        and abs(float(np.dot(up, front))) < 1e-6
-                    )
-                    item["identity_orientation_metadata_ok"] = bool(orientation_ok)
-                    if not orientation_ok:
-                        item["errors"].append("source up/front metadata is inconsistent with identity upright orientation")
-
-            item.setdefault("hash_ok",False)
             item["passed"] = not item["errors"]
             records.append(item)
             errors.extend(f"{prefix}: {message}" for message in item["errors"])
@@ -151,6 +106,130 @@ def inspect_approved_object_registry(
             errors.append(f"{category}: approved records have inconsistent semantic_id values")
 
     return {"passed": not errors, "records": records, "errors": errors}
+
+
+def inspect_approved_object_sources(registry: dict, dataset_root) -> dict:
+    """Validate current HSSD files/hashes; called once by integration preflight."""
+    root = Path(dataset_root).resolve()
+    pure = inspect_approved_object_registry(registry)
+    records = []
+    errors = list(pure["errors"])
+    for pure_record in pure["records"]:
+        item = dict(pure_record)
+        item["errors"] = list(pure_record["errors"])
+        canonical = item.get("canonical_id")
+        source_path = None
+        if item.get("canonical_id_safe"):
+            source_path = (root / canonical).resolve()
+            try:
+                source_path.relative_to(root)
+            except ValueError:
+                item["errors"].append(
+                    "canonical_id resolves outside the HSSD dataset root"
+                )
+                source_path = None
+        item["source_path"] = str(source_path) if source_path is not None else None
+        item["source_exists"] = bool(source_path and source_path.is_file())
+        if source_path is not None and not source_path.is_file():
+            item["errors"].append("source object config does not exist")
+        if source_path is not None and source_path.is_file():
+            actual_hash = hashlib.sha256(source_path.read_bytes()).hexdigest()
+            item["asset_fingerprint_actual"] = actual_hash
+            item["hash_ok"] = bool(
+                actual_hash == item.get("asset_fingerprint_expected")
+            )
+            if not item["hash_ok"]:
+                item["errors"].append("asset fingerprint mismatch")
+            try:
+                source_config = json.loads(source_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError) as exc:
+                item["errors"].append(f"cannot parse source object config: {exc}")
+            else:
+                actual_semantic = source_config.get("semantic_id")
+                item["semantic_id_source"] = actual_semantic
+                if actual_semantic != item.get("semantic_id_expected"):
+                    item["errors"].append(
+                        "source semantic_id does not match registry"
+                    )
+                item["source_up"] = source_config.get("up")
+                item["source_front"] = source_config.get("front")
+                up = np.asarray(source_config.get("up", []), dtype=np.float64)
+                front = np.asarray(source_config.get("front", []), dtype=np.float64)
+                orientation_ok = (
+                    up.shape == (3,)
+                    and front.shape == (3,)
+                    and np.all(np.isfinite(up))
+                    and np.all(np.isfinite(front))
+                    and np.linalg.norm(up) > 0
+                    and np.linalg.norm(front) > 0
+                    and float(np.dot(up / np.linalg.norm(up), [0, 1, 0])) > 0.999
+                    and abs(float(np.dot(up, front))) < 1e-6
+                )
+                item["identity_orientation_metadata_ok"] = bool(orientation_ok)
+                if not orientation_ok:
+                    item["errors"].append(
+                        "source up/front metadata is inconsistent with identity upright orientation"
+                    )
+        item.setdefault("hash_ok", False)
+        item["passed"] = not item["errors"]
+        records.append(item)
+        prefix = f"{item.get('category')}[{item.get('index')}]"
+        source_only_errors = item["errors"][len(pure_record["errors"]):]
+        errors.extend(f"{prefix}: {message}" for message in source_only_errors)
+    return {"passed": not errors, "records": records, "errors": errors}
+
+
+def normalize_canonical_asset_identifier(value: str) -> str:
+    """Return a canonical HSSD-relative object-config ID or raise ValueError."""
+    if not isinstance(value, str) or not value or "\\" in value:
+        raise ValueError("asset_identifier is not a normalized canonical path")
+    pure = PurePosixPath(value)
+    if (
+        pure.is_absolute()
+        or value != pure.as_posix()
+        or any(part in ("", ".", "..") for part in pure.parts)
+        or not value.endswith(".object_config.json")
+    ):
+        raise ValueError("asset_identifier is not a normalized canonical path")
+    return value
+
+
+def validate_controlled_object_identity(
+    obj: ObjectState,
+    controlled_object_pools,
+    semantic_category_ids=None,
+) -> List[str]:
+    """Pure per-state approved category/asset membership validation."""
+    errors = []
+    category = str(obj.category)
+    pools = controlled_object_pools or {}
+    if category not in pools:
+        errors.append(f"unknown controlled-object category {category!r}")
+    if semantic_category_ids is not None:
+        semantic_value = semantic_category_ids.get(category)
+        if not isinstance(semantic_value, int) or semantic_value <= 0:
+            errors.append(f"category {category!r} has no valid semantic category ID")
+    try:
+        canonical = normalize_canonical_asset_identifier(obj.asset_identifier)
+    except ValueError as exc:
+        errors.append(str(exc))
+        return errors
+    categories = sorted(
+        pool_category
+        for pool_category, identifiers in pools.items()
+        if canonical in identifiers
+    )
+    if category in pools and canonical not in pools[category]:
+        errors.append(
+            f"asset_identifier is not approved for category {category!r}: {canonical}"
+        )
+    if not categories:
+        errors.append(f"unknown approved asset_identifier: {canonical}")
+    elif categories != [category]:
+        errors.append(
+            f"asset_identifier category ownership mismatch: {canonical} -> {categories}"
+        )
+    return errors
 
 
 def is_decomposed_canonical_id(canonical_id: str) -> bool:
@@ -170,17 +249,25 @@ def canonical_template_index(template_handles, dataset_root) -> Dict[str, List[s
     return result
 
 
+def resolve_canonical_template(handle_index, canonical_id: str) -> str:
+    """Resolve one canonical identifier by exact lookup, never by suffix."""
+    canonical = normalize_canonical_asset_identifier(canonical_id)
+    matches = list(handle_index.get(canonical, []))
+    if len(matches) != 1:
+        raise KeyError(
+            f"Canonical HSSD asset {canonical} resolved to {len(matches)} handles"
+        )
+    return matches[0]
+
+
 def resolve_canonical_templates(template_handles, dataset_root, canonical_ids) -> Dict[str, str]:
     index=canonical_template_index(template_handles,dataset_root)
-    result={}
-    for canonical in canonical_ids:
-        matches=index.get(str(canonical),[])
-        if len(matches)!=1:
-            raise KeyError(
-                f"Canonical HSSD asset {canonical} resolved to {len(matches)} handles"
-            )
-        result[str(canonical)]=matches[0]
-    return result
+    return {
+        normalize_canonical_asset_identifier(canonical): resolve_canonical_template(
+            index, canonical
+        )
+        for canonical in canonical_ids
+    }
 
 
 def handles_by_suffix(template_manager, suffixes: Iterable[str]) -> Dict[str, str]:

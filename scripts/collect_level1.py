@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 import argparse
 import _bootstrap  # noqa: F401
-from mri_dataset.collector import collect_level1
+from mri_dataset.collector import collect_level1, initialize_dataset_root
 from mri_dataset.config import load_config
 from mri_dataset.habitat_backend import HabitatBackend
-from mri_dataset.object_review import run_approved_object_preflight
+from mri_dataset.object_review import run_and_publish_approved_object_preflight
 
 
 def main():
@@ -17,7 +17,10 @@ def main():
     parser.add_argument("--output-root")
     args = parser.parse_args()
     config = load_config(args.config, output_root=args.output_root)
-    run_approved_object_preflight(config,raise_on_error=True)
+    initialize_dataset_root(config.output_path,config)
+    run_and_publish_approved_object_preflight(
+        config,config.output_path,raise_on_error=True
+    )
     specs=config.collection_specs(args.scene,args.floor,args.region)
     for scene,floor,region,target in config.state_targets(specs,args.num_states):
         with HabitatBackend(config,scene,floor,region) as backend:

@@ -30,6 +30,71 @@ def unique_region_for_point(point,regions:Iterable,floor_tolerance_m:float)->Opt
     matches=[r for r in regions if abs(float(query[1])-float(r.representative_floor_y))<=float(floor_tolerance_m) and point_in_polygon_xz(query,r.semantic_polygon_world)]
     return matches[0] if len(matches)==1 else None
 
+
+def controlled_object_region_membership(
+    position_world,
+    floor_y: float,
+    floor_spec,
+    region_spec,
+    pathfinder,
+    floor_surface_y,
+    floor_tolerance_m: float,
+    navmesh_projection_tolerance_m: float = 1e-3,
+) -> dict:
+    """Validate object XZ on the state's floor, NavMesh and authored region."""
+    reasons = []
+    position = np.asarray(position_world, dtype=np.float64)
+    if position.shape != (3,) or not np.all(np.isfinite(position)):
+        return {"passed": False, "reasons": ["non-finite object position"]}
+    projected = np.array([position[0], float(floor_y), position[2]])
+    snapped = np.asarray(pathfinder.snap_point(projected), dtype=np.float64)
+    if snapped.shape != (3,) or not np.all(np.isfinite(snapped)):
+        return {"passed": False, "reasons": ["no finite NavMesh floor projection"]}
+    projection_error = float(np.linalg.norm(snapped[[0, 2]] - projected[[0, 2]]))
+    if projection_error > float(navmesh_projection_tolerance_m):
+        reasons.append(
+            f"NavMesh XZ projection error {projection_error:.6f} m exceeds "
+            f"{float(navmesh_projection_tolerance_m):.6f} m"
+        )
+    if not pathfinder.is_navigable(snapped):
+        reasons.append("floor projection is not navigable")
+    try:
+        island_id = int(pathfinder.get_island(snapped))
+    except Exception:
+        island_id = None
+        reasons.append("NavMesh island lookup failed")
+    if island_id is not None and island_id not in set(region_spec.allowed_island_ids):
+        reasons.append(f"NavMesh island {island_id} is outside selected region islands")
+    try:
+        physical_floor_y = float(floor_surface_y(snapped))
+    except Exception as exc:
+        physical_floor_y = None
+        reasons.append(f"physical floor lookup failed: {exc}")
+    if physical_floor_y is not None and (
+        not math.isfinite(physical_floor_y)
+        or abs(physical_floor_y - float(floor_y)) > float(floor_tolerance_m)
+    ):
+        reasons.append("floor projection is outside the selected physical floor")
+    semantic_query = np.array([snapped[0], float(floor_y), snapped[2]])
+    assigned = unique_region_for_point(
+        semantic_query, floor_spec.regions, floor_tolerance_m
+    )
+    assigned_region_id = getattr(assigned, "region_id", None)
+    if assigned_region_id != region_spec.region_id:
+        reasons.append(
+            "semantic region mismatch: "
+            f"expected {region_spec.region_id}, got {assigned_region_id or 'none/ambiguous'}"
+        )
+    return {
+        "passed": not reasons,
+        "reasons": reasons,
+        "projected_floor_point": snapped.tolist(),
+        "projection_error_xz_m": projection_error,
+        "physical_floor_y": physical_floor_y,
+        "island_id": island_id,
+        "assigned_region_id": assigned_region_id,
+    }
+
 def region_mask(mapping,poly_loop)->np.ndarray:
     """Rasterize an authored HSSD polygon in the exact BEV pixel frame."""
     image=Image.new("L",(mapping.width,mapping.height),0)

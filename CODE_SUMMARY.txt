@@ -126,7 +126,9 @@ src/mri_dataset/world_state.py 与 state_io.py
 ----------------------------------------------
 WorldState 保存 scene/floor/region、region category、bev_scope=semantic_region、context、
 robots、objects、BEV、overlap、parent/edit、几何验证和机器人 pair distances。ObjectState
-同时保存 runtime handle 和 portable canonical asset_identifier。state_io 对元数据无损重建。
+同时保存 runtime handle 和 portable canonical asset_identifier。asset_identifier 是正式重放的
+唯一持久身份，经当前 HSSD 根目录 exact/unique 解析为 runtime handle；历史 asset_handle 只用于
+调试。state_io 对元数据无损重建。
 
 src/mri_dataset/bev.py
 ----------------------
@@ -145,14 +147,14 @@ R1/R2/R3 视角。Level-2 sheet 上下排列 before/after 和 instruction。
 
 src/mri_dataset/validation.py
 -----------------------------
-验证 manifest/index/split、approved-object Habitat 预检报告、每个状态对象类别唯一性、数组
+验证 manifest/index/split、approved-object Habitat 预检报告及其配置/注册表指纹、每个状态对象类别唯一性、数组
 dtype/shape/注册、相机内外参、depth/height ray、机器人/对象贴地、instance centroid、
-region membership、same-region Level-2 和 ID/OOD 参数域。full 模式
+对象 approved category/asset 精确归属、基于 floor projection/NavMesh/官方 polygon 的 region membership、same-region Level-2 和 ID/OOD 参数域。full 模式
 按 scene/floor/region 重用真实 HabitatBackend。
 
 scripts/
 --------
-preprocess_hssd.py              单进程/指定 scene 预处理
+preprocess_hssd.py              单进程预处理；筛选 scene 时原子合并更新，不覆盖未选 scene
 preprocess_hssd_parallel.py     全量 scene 并行预处理并合并 registry
 build_hssd_object_registry.py  生成候选+真实视觉表，不自动批准，默认排除 decomposed
 validate_hssd_controlled_objects.py  全量 approved 文件/hash/实例化/落地/OBJECT_ID 预检与审阅图

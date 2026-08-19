@@ -13,6 +13,8 @@ from .bev import BevMapping
 from .coordinates import forward_from_quaternion, yaw_to_quaternion_xyzw
 from .serialization import load_numeric
 from .protocol import benchmark_visible_observers
+from .objects import validate_controlled_object_identity
+from .scene_registry import sha256_file
 from .state_io import read_json
 
 
@@ -342,6 +344,14 @@ def validate_dataset_manifest(root: Path, config=None) -> List[str]:
             errors.append("missing approved-object Habitat preflight report")
         elif not read_json(object_preflight_path).get("passed"):
             errors.append("approved-object Habitat preflight did not pass")
+        else:
+            object_preflight = read_json(object_preflight_path)
+            if object_preflight.get("generation_fingerprint") != config.generation_fingerprint():
+                errors.append("approved-object preflight generation fingerprint mismatch")
+            if object_preflight.get("controlled_object_registry_sha256") != sha256_file(
+                config.controlled_object_registry_path
+            ):
+                errors.append("approved-object preflight registry fingerprint mismatch")
         if config.run_multilevel_calibration_preflight:
             calibration_path = root / "calibration_report.json"
             if not calibration_path.exists():
@@ -477,59 +487,92 @@ def validate_dataset(root: Path, config=None) -> Dict[str, object]:
                 if world_state.region_id!=backend.region_id: errors.append("WorldState region_id does not match registry")
                 for robot in world_state.robots:
                     if not backend.point_in_region(robot.base_position_world): errors.append(f"{robot.robot_id}: outside selected semantic region")
-                for obj in world_state.objects:
-                    if not obj.active:
-                        continue
-                    collision = backend.object_collision_report(
-                        world_state, obj.instance_id
+                active_objects = [obj for obj in world_state.objects if obj.active]
+                identity_by_object = {
+                    obj.instance_id: validate_controlled_object_identity(
+                        obj,
+                        config.controlled_object_pools,
+                        config.semantic_category_ids,
                     )
-                    if not collision["collision_free"]:
-                        errors.append(
-                            f"{obj.instance_id}: static-scene collision "
-                            f"{collision['rejected_contacts']}"
+                    for obj in active_objects
+                }
+                runtime_asset_identity_valid = not any(identity_by_object.values())
+                membership_by_object = {}
+                for obj in active_objects:
+                    identity_errors = identity_by_object[obj.instance_id]
+                    if identity_errors:
+                        errors.extend(
+                            f"CRITICAL {obj.instance_id}: {message}"
+                            for message in identity_errors
                         )
-                    floor_point = np.asarray(
-                        backend.sim.pathfinder.snap_point(obj.position_world),
-                        dtype=np.float64,
+                    membership = backend.object_region_membership(
+                        obj.position_world, world_state.floor_y
                     )
-                    physical_floor_y = backend.floor_surface_y(floor_point)
-                    bottom = float(obj.bbox["min_world"][1])
-                    support_error = abs(bottom - physical_floor_y)
-                    if support_error > max(
-                        0.01, float(config.support_contact_tolerance_m)
-                    ):
+                    membership_by_object[obj.instance_id] = membership
+                    if not membership["passed"]:
                         errors.append(
-                            f"{obj.instance_id}: physical support error "
-                            f"{support_error:.4f} m"
+                            f"CRITICAL {obj.instance_id}: outside selected semantic region: "
+                            + "; ".join(membership["reasons"])
                         )
-                for robot in world_state.robots:
-                    collision = backend.entity_collision_report(
-                        world_state, robot.robot_id
-                    )
-                    if not collision["collision_free"]:
-                        errors.append(
-                            f"{robot.robot_id}: proxy collision "
-                            f"{collision['rejected_contacts']}"
+                runtime_geometry_valid = (
+                    runtime_asset_identity_valid
+                    and all(item["passed"] for item in membership_by_object.values())
+                )
+                if runtime_geometry_valid:
+                    for obj in active_objects:
+                        collision = backend.object_collision_report(
+                            world_state, obj.instance_id
                         )
+                        if not collision["collision_free"]:
+                            errors.append(
+                                f"{obj.instance_id}: static-scene collision "
+                                f"{collision['rejected_contacts']}"
+                            )
+                        physical_floor_y = membership_by_object[
+                            obj.instance_id
+                        ].get("physical_floor_y")
+                        if physical_floor_y is None:
+                            continue
+                        if not obj.bbox:
+                            continue
+                        bottom = float(obj.bbox["min_world"][1])
+                        support_error = abs(bottom - physical_floor_y)
+                        if support_error > max(
+                            0.01, float(config.support_contact_tolerance_m)
+                        ):
+                            errors.append(
+                                f"{obj.instance_id}: physical support error "
+                                f"{support_error:.4f} m"
+                            )
+                    for robot in world_state.robots:
+                        collision = backend.entity_collision_report(
+                            world_state, robot.robot_id
+                        )
+                        if not collision["collision_free"]:
+                            errors.append(
+                                f"{robot.robot_id}: proxy collision "
+                                f"{collision['rejected_contacts']}"
+                            )
             if config is not None:
-                for robot in world_state.robots:
-                    support = backend.robot_support_report(
-                        world_state, robot.robot_id
-                    )
-                    if abs(float(support["support_gap_m"])) > float(
-                        config.support_contact_tolerance_m
-                    ):
-                        errors.append(
-                            f"{robot.robot_id}: physical support gap "
-                            f"{support['support_gap_m']:.6f} m"
+                if runtime_geometry_valid:
+                    for robot in world_state.robots:
+                        support = backend.robot_support_report(
+                            world_state, robot.robot_id
                         )
-                    if abs(float(
-                        support["proxy_origin_offset_from_base_m"]
-                    )) > 1e-4:
-                        errors.append(
-                            f"{robot.robot_id}: proxy/base origin offset "
-                            f"{support['proxy_origin_offset_from_base_m']:.6f} m"
-                        )
+                        if abs(float(support["support_gap_m"])) > float(
+                            config.support_contact_tolerance_m
+                        ):
+                            errors.append(
+                                f"{robot.robot_id}: physical support gap "
+                                f"{support['support_gap_m']:.6f} m"
+                            )
+                        if abs(float(
+                            support["proxy_origin_offset_from_base_m"]
+                        )) > 1e-4:
+                            errors.append(
+                                f"{robot.robot_id}: proxy/base origin offset "
+                                f"{support['proxy_origin_offset_from_base_m']:.6f} m"
+                            )
             if errors:
                 report["errors"][str(state_json.parent.relative_to(root))] = errors
         for edit_path in sorted(root.glob("interventions/*/*/*/edit_*.json")):

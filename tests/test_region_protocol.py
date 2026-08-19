@@ -159,6 +159,8 @@ class RegionSamplingTests(unittest.TestCase):
             sim=SimpleNamespace(pathfinder=pathfinder)
             render_bev_bounds=(np.array([-3,-1,-3]),np.array([3,2,3]))
             def point_in_region(self,point): return point[0]>=0
+            def object_region_membership(self,point,floor_y):
+                return {"passed":self.point_in_region(point),"reasons":[]}
             def floor_surface_y(self,point): return 0.
             def object_collision_free(self,state,target): return True
             def create_object_state(self,category,asset,x,z,floor_y,index):
@@ -234,13 +236,13 @@ class ObjectPoolTests(unittest.TestCase):
                 "approved_assets":{"box":[first]},
             }
             self.assertTrue(inspect_approved_object_registry(
-                valid,root,{"box":1}
+                valid,{"box":1}
             )["passed"])
 
             duplicate=deepcopy(valid)
             duplicate["approved_assets"]["box"].append(deepcopy(first))
             errors=inspect_approved_object_registry(
-                duplicate,root,{"box":1}
+                duplicate,{"box":1}
             )["errors"]
             self.assertTrue(any("duplicate canonical_id" in error for error in errors))
 
@@ -250,7 +252,7 @@ class ObjectPoolTests(unittest.TestCase):
             invalid=deepcopy(valid)
             invalid["approved_assets"]["box"]=[decomposed]
             errors=inspect_approved_object_registry(
-                invalid,root,{"box":1}
+                invalid,{"box":1}
             )["errors"]
             self.assertTrue(any("decomposed" in error for error in errors))
 
@@ -259,7 +261,7 @@ class ObjectPoolTests(unittest.TestCase):
             unsafe["asset_fingerprint"]=""
             invalid["approved_assets"]["box"]=[unsafe]
             errors=inspect_approved_object_registry(
-                invalid,root,{"toy":2}
+                invalid,{"toy":2}
             )["errors"]
             self.assertTrue(any("safe normalized" in error for error in errors))
             self.assertTrue(any("SHA-256" in error for error in errors))
@@ -269,7 +271,7 @@ class ObjectPoolTests(unittest.TestCase):
             inconsistent=deepcopy(valid)
             inconsistent["approved_assets"]["box"]=[first,second]
             errors=inspect_approved_object_registry(
-                inconsistent,root,{"box":1}
+                inconsistent,{"box":1}
             )["errors"]
             self.assertTrue(any("inconsistent semantic_id" in error for error in errors))
 

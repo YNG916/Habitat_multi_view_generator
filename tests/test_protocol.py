@@ -5,7 +5,7 @@ from pathlib import Path
 
 import numpy as np
 
-from mri_dataset.config import _protocol_file_sha256, load_config
+from mri_dataset.config import REPO_ROOT, _protocol_file_sha256, load_config
 from mri_dataset.objects import inspect_approved_object_registry
 from mri_dataset.protocol import intervention_key, sample_intervention, stable_seed
 from mri_dataset.serialization import load_numeric, save_numeric
@@ -86,12 +86,10 @@ class FormalProtocolTests(unittest.TestCase):
 
 
     def test_current_approved_object_registry_is_internally_consistent(self):
-        config=load_config("configs/collector_hssd.json")
-        registry=json.loads(config.controlled_object_registry_path.read_text())
+        registry_path=REPO_ROOT/"configs/hssd_controlled_objects.json"
+        registry=json.loads(registry_path.read_text())
         report=inspect_approved_object_registry(
-            registry,
-            config.dataset_config_path.parent,
-            config.semantic_category_ids,
+            registry,self.config.semantic_category_ids,
         )
         self.assertTrue(report["passed"],report["errors"])
         self.assertEqual(len(report["records"]),32)

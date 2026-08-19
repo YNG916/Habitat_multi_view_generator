@@ -7,13 +7,20 @@ from pathlib import Path
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
-from .objects import canonical_template_index, inspect_approved_object_registry
+from .objects import (
+    canonical_template_index,
+    inspect_approved_object_registry,
+    inspect_approved_object_sources,
+    resolve_canonical_template,
+)
+from .scene_registry import sha256_file
 from .serialization import write_json
 
 
 REVIEW_RESOLUTION = 384
 VISUAL_FLOOR_OFFSET_LIMIT_M = 0.01
 EXTENT_TOLERANCE_M = 1e-4
+DATASET_PREFLIGHT_REPORT = "approved_object_preflight_report.json"
 
 
 def review_sensor_specs(habitat_sim):
@@ -258,9 +265,20 @@ def run_approved_object_preflight(
         config.controlled_object_registry_path.read_text(encoding="utf-8")
     )
     dataset_root = config.dataset_config_path.resolve().parent
-    pure = inspect_approved_object_registry(
-        registry, dataset_root, config.semantic_category_ids
+    pure = inspect_approved_object_registry(registry, config.semantic_category_ids)
+    sources = inspect_approved_object_sources(registry, dataset_root)
+    source_records = {
+        (record["category"], record["canonical_id"]): record
+        for record in sources["records"]
+    }
+    for record in pure["records"]:
+        source = source_records.get((record["category"], record["canonical_id"]))
+        if source is not None:
+            record.update(source)
+    pure["errors"].extend(
+        error for error in sources["errors"] if error not in pure["errors"]
     )
+    pure["passed"] = not pure["errors"]
     report_path = Path(
         report_path
         or config.repo_root / "outputs/hssd_object_preflight.json"
@@ -274,6 +292,10 @@ def run_approved_object_preflight(
         "dataset_source": "hssd",
         "registry_path": str(config.controlled_object_registry_path),
         "scene_dataset_config": str(config.dataset_config_path),
+        "generation_fingerprint": config.generation_fingerprint(),
+        "controlled_object_registry_sha256": sha256_file(
+            config.controlled_object_registry_path
+        ),
         "registry_validation_passed": bool(pure["passed"]),
         "scene_id": None,
         "physical_floor_y": None,
@@ -351,12 +373,13 @@ def run_approved_object_preflight(
                 (80, 0, 0),
             )
             matches = handle_index.get(canonical, [])
-            if len(matches) != 1:
+            try:
+                handle = resolve_canonical_template(handle_index, canonical)
+            except (KeyError, ValueError):
                 record["dynamic_errors"].append(
                     f"canonical template resolved to {len(matches)} runtime handles"
                 )
             else:
-                handle = matches[0]
                 record["runtime_handle"] = handle
                 record["resolved_handle"] = handle
                 attributes = manager.get_template_by_handle(handle)
@@ -465,3 +488,20 @@ def run_approved_object_preflight(
             + "; ".join(report["errors"][:8])
         )
     return report
+
+
+def run_and_publish_approved_object_preflight(
+    config,
+    dataset_root,
+    contact_sheet_root=None,
+    raise_on_error=True,
+):
+    """Run once and atomically publish the auditable dataset-root contract."""
+    root = Path(dataset_root)
+    root.mkdir(parents=True, exist_ok=True)
+    return run_approved_object_preflight(
+        config,
+        report_path=root / DATASET_PREFLIGHT_REPORT,
+        contact_sheet_root=contact_sheet_root,
+        raise_on_error=raise_on_error,
+    )

@@ -28,10 +28,19 @@ class HabitatDatasetIndependentTests(unittest.TestCase):
 def hssd_ready():
     registry=REPO_ROOT/"data/hssd_processed/scene_registry_smoke.json"
     objects=REPO_ROOT/"configs/hssd_controlled_objects.json"
-    if not (HABITAT_AVAILABLE and registry.is_file() and objects.is_file()):
+    dataset_config=REPO_ROOT/"data/scene_datasets/hssd-hab/hssd-hab.scene_dataset_config.json"
+    if not (
+        HABITAT_AVAILABLE and registry.is_file() and objects.is_file()
+        and dataset_config.is_file()
+    ):
         return False
     try:
-        return bool(json.loads(objects.read_text()).get("approved_assets"))
+        config=load_config(str(REPO_ROOT/"configs/collector_hssd_smoke.json"))
+        scene=config.collection_specs()[0][0]
+        return bool(
+            json.loads(objects.read_text()).get("approved_assets")
+            and config.resolve(scene.cached_navmesh_path).is_file()
+        )
     except Exception:
         return False
 
@@ -95,6 +104,14 @@ class HSSDIntegrationTests(unittest.TestCase):
             )
         self.assertTrue(self.backend.navmesh_path.is_file())
         self.assertTrue(self.scene.navmesh_settings["include_static_objects"])
+
+    def test_replay_ignores_historical_runtime_asset_handle(self):
+        state=make_world_state(self.backend,self.config,"portable_replay",123)
+        for obj in state.objects:
+            obj.asset_handle="/different/machine/stale-runtime-handle"
+        self.backend.apply_world_state(state)
+        for obj in state.objects:
+            self.assertIn(obj.instance_id,self.backend.render_ids)
 
 
 if __name__=="__main__": unittest.main()

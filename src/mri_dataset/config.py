@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-GENERATOR_CORRECTNESS_REVISION = "unique-object-categories-and-zero-runtime-margin-v1"
+GENERATOR_CORRECTNESS_REVISION = "portable-assets-and-final-validation-v2"
 
 
 def _protocol_file_sha256(path: Path, ignored_json_keys=()):
@@ -378,7 +378,7 @@ def _materialize_hssd_sources(config):
         if data.get("schema_version")=="2.0.0":
             from .objects import inspect_approved_object_registry
             registry_report=inspect_approved_object_registry(
-                data,config.dataset_config_path.parent,config.semantic_category_ids
+                data,config.semantic_category_ids
             )
             if not registry_report["passed"]:
                 details="; ".join(registry_report["errors"][:8])
