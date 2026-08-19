@@ -73,6 +73,20 @@ def load_finished_mesh():
 
     linear = transform[:3, :3]
     normals = normals @ np.linalg.inv(linear)
+
+    # The authored vacuum is Z-up, but the FBX scene transform maps source +Z
+    # to Habitat -Y. Rotate 180 degrees around Habitat X so the authored top
+    # maps to +Y while preserving a proper, right-handed rigid transform.
+    orientation_correction = np.diag([1.0, -1.0, -1.0])
+    positions = positions @ orientation_correction.T
+    normals = normals @ orientation_correction.T
+    source_up_world = orientation_correction @ linear @ np.array([0.0, 0.0, 1.0])
+    source_up_world /= np.linalg.norm(source_up_world)
+    if float(source_up_world[1]) < 0.999:
+        raise RuntimeError(
+            "Finished robot source +Z does not map to Habitat +Y after correction"
+        )
+
     normal_lengths = np.linalg.norm(normals, axis=1, keepdims=True)
     normals = normals / np.maximum(normal_lengths, 1e-12)
 
@@ -96,6 +110,15 @@ def load_finished_mesh():
         raise RuntimeError("Normalized robot mesh does not touch local Y=0")
     if float(positions[:, 1].max()) > 0.15:
         raise RuntimeError("Finished robot height is implausible after normalization")
+    surface_band_m = 0.003
+    bottom_vertices = int(np.count_nonzero(positions[:, 1] <= surface_band_m))
+    top_vertices = int(
+        np.count_nonzero(positions[:, 1] >= positions[:, 1].max() - surface_band_m)
+    )
+    if top_vertices <= bottom_vertices:
+        raise RuntimeError(
+            "Finished robot appears upside down: broad authored lid is not on top"
+        )
     return positions, normals, texcoords, indices
 
 

@@ -35,7 +35,7 @@ Semantic 输出只标生成器控制的实体：robot=1，cup/bowl/book/bottle/b
 
 仓库只保留四个必要配置：
 
-- `configs/collector_hssd_smoke.json`：真实 768×768 Pilot/Smoke，每个 region 2 个状态、每 scene 最多 4 个 factual 状态。
+- `configs/collector_hssd_smoke.json`：与正式数据同规格的 2048×2048 Pilot/Smoke，每个 region 2 个状态、每 scene 最多 4 个 factual 状态。
 - `configs/collector_hssd.json`：正式 2048×2048、0.00625 m/px；每 region 配额，train 每 scene 最多 500 个 factual 状态。
 - `configs/hssd_controlled_objects.json`：显式批准的 canonical 相对 asset ID 和 SHA‑256。
 - `configs/hssd_preprocess_overrides.json`：人工审核例外；当前只显式拒绝一个会触发 Habitat PBR `SIGABRT` 的损坏场景。
@@ -86,14 +86,14 @@ conda run --no-capture-output -n habitat \
   --stage all --validation full
 ```
 
-输出在 `outputs/mri_hssd_region_smoke_768`。可重复执行，完整 state/edit 会断点跳过；中断在 after-state 与 edit JSON 之间时会确定性恢复。
+输出在 `outputs/mri_hssd_region_smoke`。可重复执行，完整 state/edit 会断点跳过；中断在 after-state 与 edit JSON 之间时会确定性恢复。
 
 重建高清审阅图（不重新渲染）：
 
 ```bash
 conda run --no-capture-output -n habitat \
   python scripts/rebuild_contact_sheets.py \
-  --root outputs/mri_hssd_region_smoke_768
+  --root outputs/mri_hssd_region_smoke
 ```
 
 固定单个 region 调试：

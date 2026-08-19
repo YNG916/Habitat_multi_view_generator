@@ -20,7 +20,7 @@ def quantiles(values):
 def main():
     parser=argparse.ArgumentParser()
     parser.add_argument("--config",default="configs/collector_hssd.json")
-    parser.add_argument("--pilot-root",default="outputs/mri_hssd_region_smoke_768")
+    parser.add_argument("--pilot-root",default="outputs/mri_hssd_region_smoke")
     parser.add_argument("--old-registry",default="data/hssd_processed/scene_registry.json")
     parser.add_argument("--candidates",default="data/hssd_processed/object_candidates.json")
     parser.add_argument("--output",default="outputs/hssd_region_protocol_report.json")

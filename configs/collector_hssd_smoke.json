@@ -15,7 +15,7 @@
   },
   "width": 2048,
   "height": 2048,
-  "bev_meters_per_pixel": 0.02,
+  "bev_meters_per_pixel": 0.00625,
   "num_states": 1,
   "num_edits_per_state": 1,
   "save_visualizations": true,

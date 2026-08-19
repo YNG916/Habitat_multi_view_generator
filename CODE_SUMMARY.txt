@@ -35,7 +35,7 @@ CollectorConfig 定义唯一配置面。重要参数包括：
 - 标准 HSSD scene config、官方 split、registry、NavMesh cache 和 object registry；
 - 机器人直径/高度、固定 0.15 m 相机高度、0.235 m 前向偏移；
 - region context 0.75 m、面积/尺寸/采样成功率阈值；
-- 2048 正式视角、0.00625 m/px 正式 BEV；768 Pilot、0.02 m/px；
+- 正式数据和 Pilot/Smoke 均使用 2048 视角与 0.00625 m/px BEV；Smoke 仅缩小场景和状态数量；
 - resolution-aware benchmark visibility = max(绝对像素, 图像面积比例)；
 - states_per_region 和 max_states_per_scene 的确定性平衡；
 - 每类多 asset pool 与 asset SHA-256。
@@ -154,7 +154,7 @@ prepare_robot_proxy_assets.py   构建三个同拓扑、不同颜色的完成 ro
 
 configs/
 --------
-collector_hssd_smoke.json       768 Pilot，3 scene split 各最多 1 scene
+collector_hssd_smoke.json       2048 Pilot/Smoke，3 scene split 各最多 1 scene
 collector_hssd.json             正式 2048 / 0.00625 m/px
 hssd_controlled_objects.json    8 类 x 4 个 whole-object 的人工批准 canonical registry
 hssd_preprocess_overrides.json  审核后例外；显式记录一个损坏 PBR 场景

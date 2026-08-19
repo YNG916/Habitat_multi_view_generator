@@ -128,6 +128,15 @@ class FinishedRobotAssetTests(unittest.TestCase):
             dimensions = np.ptp(vertices, axis=0)
             self.assertAlmostEqual(max(dimensions[0], dimensions[2]), 0.46, places=5)
             self.assertAlmostEqual(dimensions[1], 0.107, delta=0.002)
+            bottom_vertices = np.count_nonzero(vertices[:, 1] <= 0.003)
+            top_vertices = np.count_nonzero(
+                vertices[:, 1] >= vertices[:, 1].max() - 0.003
+            )
+            self.assertGreater(
+                top_vertices,
+                bottom_vertices,
+                "broad vacuum lid must be above the sparse wheel-side geometry",
+            )
             config = json.loads(
                 (self.asset_dir / f"robot_{color}.object_config.json").read_text()
             )
