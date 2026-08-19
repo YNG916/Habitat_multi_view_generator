@@ -1,3 +1,5 @@
+import hashlib
+import json
 import tempfile
 import unittest
 from copy import deepcopy
@@ -13,7 +15,9 @@ from mri_dataset.hssd_preprocess import _visual_bounds, preprocessing_fingerprin
 from mri_dataset.interventions import Intervention, apply_intervention
 from mri_dataset.level2 import _validate_edit, _validate_observable_transition
 from mri_dataset.objects import (
-    is_decomposed_canonical_id, resolve_canonical_templates,
+    inspect_approved_object_registry,
+    is_decomposed_canonical_id,
+    resolve_canonical_templates,
 )
 from mri_dataset.regions import (
     point_in_polygon_xz, region_mask, unique_region_for_point,
@@ -170,12 +174,104 @@ class RegionSamplingTests(unittest.TestCase):
 
 
 class ObjectPoolTests(unittest.TestCase):
-    def test_deterministic_multi_asset_category_and_variant_sampling(self):
-        pools={"box":["a","b"],"toy":["c","d","e"]}
-        first=sample_object_choices(pools,20,np.random.default_rng(123))
-        second=sample_object_choices(pools,20,np.random.default_rng(123))
+    def test_object_choice_sampling_is_deterministic_and_category_unique(self):
+        pools={
+            "bag":["a0","a1"],"box":["b0","b1"],
+            "cup":["c0","c1"],"toy":["t0","t1"],
+        }
+        first=sample_object_choices(pools,4,np.random.default_rng(123))
+        second=sample_object_choices(pools,4,np.random.default_rng(123))
         self.assertEqual(first,second)
-        self.assertGreater(len(set(first)),2)
+        categories=[category for category,_ in first]
+        self.assertEqual(len(categories),len(set(categories)))
+
+    def test_object_choice_sampling_varies_categories_and_variants_across_seeds(self):
+        pools={
+            "bag":["a0","a1"],"box":["b0","b1"],
+            "cup":["c0","c1"],"toy":["t0","t1"],
+        }
+        samples=[
+            tuple(sample_object_choices(pools,2,np.random.default_rng(seed)))
+            for seed in range(32)
+        ]
+        self.assertGreater(len(set(samples)),4)
+        used_variants={asset for sample in samples for _,asset in sample}
+        self.assertEqual(used_variants,set(sum(pools.values(),[])))
+
+    def test_object_choice_sampling_rejects_over_request_and_empty_pool(self):
+        with self.assertRaisesRegex(ValueError,"only 2 non-empty categories"):
+            sample_object_choices(
+                {"box":["a"],"empty":[],"toy":["b"]},
+                3,
+                np.random.default_rng(1),
+            )
+        with self.assertRaisesRegex(ValueError,"only 0 non-empty categories"):
+            sample_object_choices({},1,np.random.default_rng(1))
+        self.assertEqual(sample_object_choices({},0,np.random.default_rng(1)),[])
+
+    def test_registry_inspection_rejects_pure_consistency_violations(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory)
+            def record(canonical,semantic_id):
+                path=root/canonical
+                path.parent.mkdir(parents=True,exist_ok=True)
+                payload={
+                    "semantic_id":semantic_id,
+                    "up":[0,1,0],
+                    "front":[0,0,-1],
+                }
+                path.write_text(json.dumps(payload))
+                return {
+                    "canonical_id":canonical,
+                    "semantic_id":semantic_id,
+                    "extent_xyz_m":[.1,.2,.3],
+                    "asset_fingerprint":hashlib.sha256(path.read_bytes()).hexdigest(),
+                }
+
+            first=record("objects/a.object_config.json",10)
+            valid={
+                "schema_version":"2.0.0",
+                "approved_assets":{"box":[first]},
+            }
+            self.assertTrue(inspect_approved_object_registry(
+                valid,root,{"box":1}
+            )["passed"])
+
+            duplicate=deepcopy(valid)
+            duplicate["approved_assets"]["box"].append(deepcopy(first))
+            errors=inspect_approved_object_registry(
+                duplicate,root,{"box":1}
+            )["errors"]
+            self.assertTrue(any("duplicate canonical_id" in error for error in errors))
+
+            decomposed=record(
+                "objects/decomposed/b.object_config.json",10
+            )
+            invalid=deepcopy(valid)
+            invalid["approved_assets"]["box"]=[decomposed]
+            errors=inspect_approved_object_registry(
+                invalid,root,{"box":1}
+            )["errors"]
+            self.assertTrue(any("decomposed" in error for error in errors))
+
+            unsafe=deepcopy(first)
+            unsafe["canonical_id"]="objects/../a.object_config.json"
+            unsafe["asset_fingerprint"]=""
+            invalid["approved_assets"]["box"]=[unsafe]
+            errors=inspect_approved_object_registry(
+                invalid,root,{"toy":2}
+            )["errors"]
+            self.assertTrue(any("safe normalized" in error for error in errors))
+            self.assertTrue(any("SHA-256" in error for error in errors))
+            self.assertTrue(any("semantic_category_ids" in error for error in errors))
+
+            second=record("objects/b.object_config.json",11)
+            inconsistent=deepcopy(valid)
+            inconsistent["approved_assets"]["box"]=[first,second]
+            errors=inspect_approved_object_registry(
+                inconsistent,root,{"box":1}
+            )["errors"]
+            self.assertTrue(any("inconsistent semantic_id" in error for error in errors))
 
     def test_canonical_resolution_is_exact_and_unique(self):
         with tempfile.TemporaryDirectory() as directory:

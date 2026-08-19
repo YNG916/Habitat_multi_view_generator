@@ -57,12 +57,22 @@ def make_world_state(backend, config, state_id: str, seed: int, deterministic_de
 
 
 def sample_object_choices(pools, count, rng):
+    """Sample distinct categories, then one approved variant within each category."""
+    count=int(count)
+    if count<0:
+        raise ValueError("Controlled-object count cannot be negative")
     categories=sorted(category for category,assets in pools.items() if assets)
-    if count>0 and not categories:
-        raise ValueError("No approved controlled-object assets")
+    if count>len(categories):
+        raise ValueError(
+            f"Requested {count} controlled objects from only "
+            f"{len(categories)} non-empty categories"
+        )
+    if count==0:
+        return []
+    indices=np.atleast_1d(rng.choice(len(categories),size=count,replace=False))
     result=[]
-    for _ in range(int(count)):
-        category=categories[int(rng.integers(len(categories)))]
+    for category_index in indices:
+        category=categories[int(category_index)]
         assets=list(pools[category])
         result.append((category,assets[int(rng.integers(len(assets)))]))
     return result
@@ -97,6 +107,9 @@ def sample_controlled_objects(backend,state,config,rng)->list:
 
 
 def validate_sampled_state(backend, state, config) -> None:
+    categories=[obj.category for obj in state.objects]
+    if len(categories)!=len(set(categories)):
+        raise ValueError("A WorldState contains duplicate controlled-object categories")
     pathfinder = backend.sim.pathfinder
     for robot in state.robots:
         point = np.asarray(robot.base_position_world)

@@ -3,6 +3,7 @@ import argparse
 import _bootstrap  # noqa: F401
 from mri_dataset.config import load_config
 from mri_dataset.habitat_backend import HabitatBackend
+from mri_dataset.object_review import run_approved_object_preflight
 from mri_dataset.level2 import collect_level2
 
 
@@ -21,6 +22,7 @@ def main():
     parser.add_argument("--regimes")
     args = parser.parse_args()
     config = load_config(args.config, output_root=args.root)
+    run_approved_object_preflight(config,raise_on_error=True)
     regimes = args.regimes.split(",") if args.regimes else None
     total = 0
     for scene,floor,region in config.collection_specs(args.scene,args.floor,args.region):

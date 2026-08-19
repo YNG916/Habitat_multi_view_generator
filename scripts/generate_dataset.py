@@ -8,6 +8,7 @@ from mri_dataset.collector import collect_level1, initialize_dataset_root, updat
 from mri_dataset.config import load_config
 from mri_dataset.habitat_backend import HabitatBackend
 from mri_dataset.level2 import collect_level2
+from mri_dataset.object_review import run_approved_object_preflight
 from mri_dataset.serialization import write_json
 from mri_dataset.validation import validate_dataset
 
@@ -43,7 +44,12 @@ def main():
         selected = config.collection_specs()
     regimes = args.regimes.split(",") if args.regimes else None
     root = config.output_path
+    object_preflight=run_approved_object_preflight(
+        config,raise_on_error=True
+    )
     initialize_dataset_root(root, config)
+    if object_preflight is not None:
+        write_json(root/"approved_object_preflight_report.json",object_preflight)
     report = {
         "schema_version":"2.0.0","dataset_source":"hssd",
         "protocol_version":config.protocol_version,
@@ -51,6 +57,14 @@ def main():
         "started_at_utc":utc_now(),
         "selected_scene_floor_regions":[f"{s.scene_id}/{f.floor_id}/{r.region_id}" for s,f,r in selected],
         "stage":args.stage,"new_level1_states":{},"new_level2_edits":{},
+        "approved_object_preflight":(
+            {
+                "passed":bool(object_preflight["passed"]),
+                "asset_count":int(object_preflight["asset_count"]),
+                "report":"approved_object_preflight_report.json",
+            }
+            if object_preflight is not None else None
+        ),
     }
     write_json(root/"generation_report.json",report)
     if config.run_multilevel_calibration_preflight:

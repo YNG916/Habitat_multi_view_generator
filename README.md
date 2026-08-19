@@ -25,7 +25,7 @@ Habitat-Sim 0.3.3 在标准 HSSD 场景中没有填充 active `SemanticScene`，
 - 相机高度固定为地面上方 0.15 m，位于机器人前缘；不会随机器人或房间随机改变。
 - 正式 RGB/height BEV 由 semantic region 的局部 footprint 加 0.75 m context 得到，不再覆盖整层。
 - `region_mask`、二值 occupancy、`navigable_region_mask = region_mask ∩ occupancy`、controlled semantic、OBJECT_ID instance 注册到同一 BEV frame。
-- 每个状态确定性采样 2–4 个受控物体；8 类、每类 4 个经批准的 whole-object HSSD asset。
+- 每个状态确定性采样 2–4 个受控物体；类别无放回、同类 asset variant 随机，因此一个状态内不会出现重复类别；8 类、每类 4 个经批准的 whole-object HSSD asset。
 - Level‑2 只移动受控机器人/物体，before/after 保持同一 `region_id` 和完全相同的 BEV bounds。
 - split 单位始终是 HSSD scene：官方 train → formal train/internal val，官方 val → novel-scene test；同一 scene 的 region 不会跨 split。
 
@@ -40,7 +40,17 @@ Semantic 输出只标生成器控制的实体：robot=1，cup/bowl/book/bottle/b
 - `configs/hssd_controlled_objects.json`：显式批准的 canonical 相对 asset ID 和 SHA‑256。
 - `configs/hssd_preprocess_overrides.json`：人工审核例外；当前只显式拒绝一个会触发 Habitat PBR `SIGABRT` 的损坏场景。
 
-Smoke 使用 3 场景 Pilot registry；正式配置使用全量 `scene_registry_region_v3.json`。region-local 输出必须写入新的 output root，不能与旧 floor-global 状态混用。
+Smoke 使用 3 场景 `scene_registry_smoke.json`；正式配置使用全量 `scene_registry.json`。
+
+输出名称固定，不再通过添加 `v2`、`v3`、`hd`、`final` 或 `correctness` 后缀创建并行版本：
+
+- `outputs/mri_hssd_smoke`：当前高清 Smoke，可断点续跑；
+- `outputs/mri_hssd`：正式数据集；
+- `outputs/hssd_region_previews`：当前区域预处理审阅图；
+- `outputs/hssd_object_candidates`：候选对象审阅图；
+- `outputs/hssd_object_review` 与 `outputs/hssd_object_preflight.json`：正式对象池审阅结果。
+
+协议指纹不兼容时，应明确归档或清空原固定目录后重新生成，不再创造带新后缀的 output root。
 
 ## 1. 构建候选物体清单（不会自动批准）
 
@@ -52,7 +62,17 @@ conda run --no-capture-output -n habitat \
 
 默认排除 `/decomposed/`，输出 `data/hssd_processed/object_candidates.json` 和每类候选 contact sheet。正式生成只读取人工维护的 `configs/hssd_controlled_objects.json`。
 
-## 2. 预处理
+## 2. 正式对象池预检
+
+```bash
+conda run --no-capture-output -n habitat   python scripts/validate_hssd_controlled_objects.py   --config configs/collector_hssd.json
+```
+
+该命令对 approved 8×4 全池检查安全 canonical path、文件/hash、semantic ID、唯一 runtime handle、identity 朝向、visual/collision AABB、物理地面支撑和 OBJECT_ID 渲染。报告写到 `outputs/hssd_object_preflight.json`，每类正式审阅图写到 `outputs/hssd_object_review/`。所有正式 Level‑1/2 入口会在采集前自动运行同一预检；任一资源失败即停止。
+
+HSSD rigid object 的默认 4 cm Bullet margin 只用于一般碰撞扩张，不代表 mesh 底面。approved 小物体在 runtime 统一使用 0 margin，再按 collision AABB 支撑到地面；原始 HSSD 配置文件不会被修改。
+
+## 3. 预处理
 
 三场景 Pilot：
 
@@ -61,9 +81,9 @@ conda run --no-capture-output -n habitat \
   python scripts/preprocess_hssd.py \
   --config configs/collector_hssd_smoke.json \
   --scene 102344022 --scene 102344307 --scene 102344094 \
-  --registry-path data/hssd_processed/scene_registry_region_pilot_v3.json \
-  --split-manifest-path data/hssd_processed/split_manifest_region_pilot_v3.json \
-  --preview-root outputs/hssd_eligible_region_previews
+  --registry-path data/hssd_processed/scene_registry_smoke.json \
+  --split-manifest-path data/hssd_processed/split_manifest_smoke.json \
+  --preview-root outputs/hssd_region_previews
 ```
 
 全量 168 场景只生成 registry/NavMesh/预览，不生成正式图像数据：
@@ -72,12 +92,12 @@ conda run --no-capture-output -n habitat \
 conda run --no-capture-output -n habitat \
   python scripts/preprocess_hssd_parallel.py \
   --config configs/collector_hssd.json --workers 4 \
-  --preview-root outputs/hssd_eligible_region_previews
+  --preview-root outputs/hssd_region_previews
 ```
 
 缓存复用同时校验 NavMesh 参数、NavMesh SHA‑256、预处理 schema、所有区域/楼层/BEV 阈值、scene instance SHA‑256 和 semantic region 文件 SHA‑256。
 
-## 3. 高清 Pilot/Smoke
+## 4. 高清 Pilot/Smoke
 
 ```bash
 conda run --no-capture-output -n habitat \
@@ -86,14 +106,14 @@ conda run --no-capture-output -n habitat \
   --stage all --validation full
 ```
 
-输出在 `outputs/mri_hssd_region_smoke`。可重复执行，完整 state/edit 会断点跳过；中断在 after-state 与 edit JSON 之间时会确定性恢复。
+输出在 `outputs/mri_hssd_smoke`。可重复执行，完整 state/edit 会断点跳过；中断在 after-state 与 edit JSON 之间时会确定性恢复。
 
 重建高清审阅图（不重新渲染）：
 
 ```bash
 conda run --no-capture-output -n habitat \
   python scripts/rebuild_contact_sheets.py \
-  --root outputs/mri_hssd_region_smoke
+  --root outputs/mri_hssd_smoke
 ```
 
 固定单个 region 调试：
@@ -106,7 +126,7 @@ conda run --no-capture-output -n habitat \
   --region region_004_other_room --seed 123
 ```
 
-## 4. 统计与正式生成
+## 5. 统计与正式生成
 
 先生成全量统计和存储投影：
 
@@ -116,7 +136,7 @@ conda run --no-capture-output -n habitat \
   --config configs/collector_hssd.json
 ```
 
-审核 `outputs/hssd_region_protocol_report.json` 后才启动正式数据：
+审核 `outputs/hssd_protocol_report.json` 后才启动正式数据：
 
 ```bash
 conda run --no-capture-output -n habitat \
@@ -134,6 +154,7 @@ dataset_root/
   dataset.json
   categories.json
   calibration_report.json
+  approved_object_preflight_report.json
   generation_report.json
   validation_report.json
   scenes/<scene_id>/
@@ -163,4 +184,4 @@ PYTHONPATH=src conda run --no-capture-output -n habitat \
   python -m unittest discover -s tests -v
 ```
 
-测试覆盖区域 schema/点归属/同区域采样、mask 与 occupancy 注册、缓存失效、多资产确定性、canonical 唯一解析、decomposed 排除、Level‑2 region/BEV 一致性、可见性阈值、贴地、真实 HSSD 渲染和 split 防泄漏。
+测试覆盖区域 schema/点归属/同区域采样、mask 与 occupancy 注册、缓存失效、对象类别无放回确定性与 variant 多样性、approved registry 8×4 一致性、canonical 唯一解析、decomposed 排除、Level‑2 region/BEV 一致性、可见性阈值、机器人/对象贴地、真实 HSSD 渲染和 split 防泄漏。

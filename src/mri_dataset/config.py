@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+GENERATOR_CORRECTNESS_REVISION = "unique-object-categories-and-zero-runtime-margin-v1"
 
 
 def _protocol_file_sha256(path: Path, ignored_json_keys=()):
@@ -40,8 +41,8 @@ class CollectorConfig:
     dataset_source: str = "hssd"
     scene_dataset_config: str = "data/scene_datasets/hssd-hab/hssd-hab.scene_dataset_config.json"
     official_scene_splits: str = "data/scene_datasets/hssd-hab/scene_splits.yaml"
-    scene_registry: str = "data/hssd_processed/scene_registry_region_v3.json"
-    split_manifest: str = "data/hssd_processed/split_manifest_region_v3.json"
+    scene_registry: str = "data/hssd_processed/scene_registry.json"
+    split_manifest: str = "data/hssd_processed/split_manifest.json"
     navmesh_cache_root: str = "data/hssd_processed/navmeshes"
     controlled_object_registry: str = "configs/hssd_controlled_objects.json"
     hssd_preprocess_overrides_path: str = "configs/hssd_preprocess_overrides.json"
@@ -271,6 +272,7 @@ class CollectorConfig:
         data = self.to_dict()
         for key in ("output_root", "num_states", "num_states_by_split", "num_edits_per_state", "resume"):
             data.pop(key, None)
+        data["_generator_correctness_revision"] = GENERATOR_CORRECTNESS_REVISION
         data["_robot_proxy_assets_sha256"] = self.robot_proxy_asset_fingerprints()
         for label, path, ignored_keys in (
             (
@@ -331,6 +333,11 @@ class CollectorConfig:
             raise ValueError("Every object category needs approved assets")
         if not 0 <= self.controlled_objects_min_per_state <= self.controlled_objects_max_per_state:
             raise ValueError("Invalid controlled object count range")
+        available_categories=sum(bool(assets) for assets in self.controlled_object_pools.values())
+        if available_categories and self.controlled_objects_max_per_state > available_categories:
+            raise ValueError(
+                "controlled_objects_max_per_state exceeds the number of approved categories"
+            )
         if self.enable_semantic and not {"robot", *self.controlled_object_pools}.issubset(self.semantic_category_ids):
             raise ValueError("Missing semantic category")
         ids = list(map(int, self.semantic_category_ids.values()))
@@ -366,11 +373,17 @@ class CollectorConfig:
 
 def _materialize_hssd_sources(config):
     path=config.controlled_object_registry_path
-    if path.is_file():
+    if config.require_preprocessed_registry and path.is_file():
         data=json.loads(path.read_text(encoding="utf-8"))
         if data.get("schema_version")=="2.0.0":
+            from .objects import inspect_approved_object_registry
+            registry_report=inspect_approved_object_registry(
+                data,config.dataset_config_path.parent,config.semantic_category_ids
+            )
+            if not registry_report["passed"]:
+                details="; ".join(registry_report["errors"][:8])
+                raise ValueError(f"Invalid approved HSSD object registry: {details}")
             approved=data.get("approved_assets",{})
-            if not isinstance(approved,dict): raise ValueError("approved_assets must be an object")
             pools={}; hashes={}
             for category,records in approved.items():
                 if not isinstance(records,list): raise ValueError("Approved pools must be lists")

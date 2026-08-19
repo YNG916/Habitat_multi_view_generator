@@ -1,5 +1,6 @@
 outputs/
 outputs_replica_cad/
+habitat_archives/
 
 # External/local scene data
 data/

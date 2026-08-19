@@ -292,6 +292,9 @@ def validate_state_dir(
     objects_path = state_dir / metadata["objects_path"]
     try:
         objects = read_json(objects_path)
+        object_categories=[obj.get("category") for obj in objects]
+        if len(object_categories)!=len(set(object_categories)):
+            errors.append("WorldState has duplicate controlled-object categories")
         for obj in objects:
             if obj["active"] and obj.get("bbox"):
                 low = np.asarray(obj["bbox"]["min_world"], dtype=np.float64)
@@ -334,6 +337,11 @@ def validate_dataset_manifest(root: Path, config=None) -> List[str]:
         fingerprint = dataset.get("generation_fingerprint")
         if fingerprint and fingerprint != config.generation_fingerprint():
             errors.append("generation config fingerprint mismatch")
+        object_preflight_path = root / "approved_object_preflight_report.json"
+        if not object_preflight_path.is_file():
+            errors.append("missing approved-object Habitat preflight report")
+        elif not read_json(object_preflight_path).get("passed"):
+            errors.append("approved-object Habitat preflight did not pass")
         if config.run_multilevel_calibration_preflight:
             calibration_path = root / "calibration_report.json"
             if not calibration_path.exists():

@@ -311,6 +311,7 @@ class HabitatBackend:
         entity_id: str,
         support_floor_y: Optional[float] = None,
         require_floor_origin: bool = False,
+        collision_margin_m: Optional[float] = None,
     ):
         manager = self.sim.get_rigid_object_manager()
         handle = self.resolve_runtime_handle(handle)
@@ -318,6 +319,8 @@ class HabitatBackend:
         if obj is None:
             raise RuntimeError(f"Habitat failed to instantiate rigid template {handle}")
         obj.motion_type = self.habitat_sim.physics.MotionType.KINEMATIC
+        if collision_margin_m is not None:
+            obj.margin = float(collision_margin_m)
         translation = np.asarray(position, dtype=np.float64).copy()
         if support_floor_y is not None:
             collision_min_y = float(obj.collision_shape_aabb.min[1])
@@ -372,6 +375,7 @@ class HabitatBackend:
                 self._spawn(
                     obj_state.asset_handle, obj_state.position_world, obj_state.quaternion_world_xyzw,
                     obj_state.semantic_id, obj_state.instance_id,
+                    collision_margin_m=0.0,
                 )
 
         center_x = 0.5 * (self.mapping.x_min + self.mapping.x_max)
@@ -393,6 +397,7 @@ class HabitatBackend:
         if obj is None:
             raise RuntimeError(f"Could not instantiate controlled object template {handle}")
         obj.motion_type = self.habitat_sim.physics.MotionType.KINEMATIC
+        obj.margin = 0.0
         local_min_y = float(obj.collision_shape_aabb.min[1])
         position = np.array([x, floor_y - local_min_y, z], dtype=np.float64)
         obj.translation = position.astype(np.float32)
@@ -466,6 +471,7 @@ class HabitatBackend:
         if rigid is None:
             raise RuntimeError(f"Could not instantiate controlled object template {handle}")
         try:
+            rigid.margin = 0.0
             local_aabb = rigid.collision_shape_aabb
             position = np.asarray(obj_state.position_world, dtype=np.float64)
             position[1] = float(floor_y) - float(local_aabb.min[1])
@@ -540,9 +546,13 @@ class HabitatBackend:
         rigid.angular_velocity = np.zeros(3, dtype=np.float32)
         penetration_tolerance = float(self.config.collision_penetration_tolerance_m)
         support_tolerance = float(self.config.support_contact_tolerance_m)
-        floor_contact_tolerance = (
-            float(self.config.robot_floor_collision_tolerance_m)
-            if is_robot else support_tolerance
+        # The static HSSD stage carries a roughly 1 cm Bullet margin even
+        # when the controlled object's runtime margin is zero.  Treat only a
+        # near-horizontal stage contact within the existing floor tolerance as
+        # support; all other contacts retain the strict penetration threshold.
+        floor_contact_tolerance = max(
+            support_tolerance,
+            float(self.config.robot_floor_collision_tolerance_m),
         )
         self.sim.perform_discrete_collision_detection()
         rejected = []

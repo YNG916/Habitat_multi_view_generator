@@ -26,7 +26,7 @@ class HabitatDatasetIndependentTests(unittest.TestCase):
 
 
 def hssd_ready():
-    registry=REPO_ROOT/"data/hssd_processed/scene_registry_region_pilot_v3.json"
+    registry=REPO_ROOT/"data/hssd_processed/scene_registry_smoke.json"
     objects=REPO_ROOT/"configs/hssd_controlled_objects.json"
     if not (HABITAT_AVAILABLE and registry.is_file() and objects.is_file()):
         return False
@@ -66,6 +66,22 @@ class HSSDIntegrationTests(unittest.TestCase):
             support=self.backend.robot_support_report(state,robot.robot_id)
             self.assertAlmostEqual(support["support_gap_m"],0.,places=4)
             self.assertAlmostEqual(support["proxy_origin_offset_from_base_m"],0.,places=5)
+        self.backend.apply_world_state(state)
+        manager=self.backend.sim.get_rigid_object_manager()
+        for obj in state.objects:
+            rigid_id=self.backend.render_ids[obj.instance_id][0]
+            rigid=manager.get_object_by_id(rigid_id)
+            floor_y=self.backend.floor_surface_y(obj.position_world)
+            visual_bottom=(
+                float(rigid.translation[1])
+                +float(rigid.root_scene_node.cumulative_bb.min[1])
+            )
+            self.assertAlmostEqual(float(rigid.margin),0.0,places=7)
+            self.assertLessEqual(
+                abs(visual_bottom-floor_y),
+                0.01,
+                "approved collider/visual support offset exceeds 1 cm",
+            )
 
     def test_floor_local_sampling_and_cached_navmesh(self):
         state=make_world_state(self.backend,self.config,"hssd_floor",456)

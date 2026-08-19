@@ -6,6 +6,7 @@ from pathlib import Path
 import numpy as np
 
 from mri_dataset.config import _protocol_file_sha256, load_config
+from mri_dataset.objects import inspect_approved_object_registry
 from mri_dataset.protocol import intervention_key, sample_intervention, stable_seed
 from mri_dataset.serialization import load_numeric, save_numeric
 from mri_dataset.world_state import ObjectState, RobotState, WorldState
@@ -83,6 +84,33 @@ class FormalProtocolTests(unittest.TestCase):
                 first, _protocol_file_sha256(path, ("preview_path", "preview_panels"))
             )
 
+
+    def test_current_approved_object_registry_is_internally_consistent(self):
+        config=load_config("configs/collector_hssd.json")
+        registry=json.loads(config.controlled_object_registry_path.read_text())
+        report=inspect_approved_object_registry(
+            registry,
+            config.dataset_config_path.parent,
+            config.semantic_category_ids,
+        )
+        self.assertTrue(report["passed"],report["errors"])
+        self.assertEqual(len(report["records"]),32)
+        counts={}
+        for record in report["records"]:
+            counts[record["category"]]=counts.get(record["category"],0)+1
+        self.assertEqual(set(counts.values()),{4})
+        self.assertEqual(len({
+            record["canonical_id"] for record in report["records"]
+        }),32)
+
+    def test_formal_config_rejects_more_objects_than_categories(self):
+        with self.assertRaisesRegex(ValueError,"exceeds"):
+            load_config(
+                require_preprocessed_registry=False,
+                controlled_object_pools={"box":["asset"]},
+                controlled_objects_min_per_state=0,
+                controlled_objects_max_per_state=2,
+            )
 
     def test_formal_config_rejects_nonstandard_hssd_variants(self):
         with self.assertRaisesRegex(ValueError, "standard"):

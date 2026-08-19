@@ -170,5 +170,7 @@ def protocol_descriptor(config) -> dict:
         "bev_scope":"semantic_region",
         "region_context_margin_m":config.region_context_margin_m,
         "controlled_object_pools":config.controlled_object_pools,
+        "controlled_object_sampling":"categories_without_replacement_then_variant_within_category",
+        "controlled_object_runtime_collision_margin_m":0.0,
         "seed_derivation":"sha256(base_seed|scene|floor|region|state|regime|slot|attempt)[:32-bit]",
     }

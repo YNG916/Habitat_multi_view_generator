@@ -20,10 +20,9 @@ def quantiles(values):
 def main():
     parser=argparse.ArgumentParser()
     parser.add_argument("--config",default="configs/collector_hssd.json")
-    parser.add_argument("--pilot-root",default="outputs/mri_hssd_region_smoke")
-    parser.add_argument("--old-registry",default="data/hssd_processed/scene_registry.json")
+    parser.add_argument("--pilot-root",default="outputs/mri_hssd_smoke")
     parser.add_argument("--candidates",default="data/hssd_processed/object_candidates.json")
-    parser.add_argument("--output",default="outputs/hssd_region_protocol_report.json")
+    parser.add_argument("--output",default="outputs/hssd_protocol_report.json")
     args=parser.parse_args();config=load_config(args.config)
     registry=config.registry();eligible_scenes=[s for s in registry.scenes if s.eligible]
     floors=[f for s in registry.scenes for f in s.floors];regions=[r for f in floors for r in f.regions]
@@ -48,14 +47,6 @@ def main():
         "bev_metric_height_m":quantiles([z for _,z in metric]),
         "bev_pixel_statistics":resolution,
     }
-    old_path=Path(args.old_registry)
-    if old_path.is_file():
-        old=json.loads(old_path.read_text());ambiguous={
-            scene["scene_id"] for scene in old.get("scenes",[])
-            if any("ambiguous_overlapping_multifloor_geometry" in f.get("rejection_reasons",[]) for f in scene.get("floors",[]))
-        }
-        current={s.scene_id for s in eligible_scenes}
-        report["previous_ambiguous_multifloor"]={"scenes":len(ambiguous),"recovered_as_region_eligible":len(ambiguous&current),"recovered_scene_ids":sorted(ambiguous&current)}
     approved=json.loads(config.controlled_object_registry_path.read_text()).get("approved_assets",{})
     report["approved_objects"]={"categories":len(approved),"assets_total":sum(map(len,approved.values())),"assets_per_category":{key:len(value) for key,value in approved.items()}}
     candidate_path=Path(args.candidates)

@@ -13,6 +13,17 @@ Preprocessing algorithm: 2.1.0-region-v7
 data/versioned_data/hssd-hab 的符号链接，两条路径是同一份已安装数据。代码不下载数据，
 不使用 ReplicaCAD、uncluttered、articulated，也不编辑原生 HSSD 家具。
 
+固定命名
+--------
+当前文件不再使用 v2/v3/hd/final/correctness 递增后缀：
+- data/hssd_processed/scene_registry.json 与 split_manifest.json：正式预处理元数据；
+- scene_registry_smoke.json 与 split_manifest_smoke.json：三场景 Smoke 元数据；
+- outputs/mri_hssd：正式数据；outputs/mri_hssd_smoke：高清 Smoke；
+- outputs/hssd_region_previews：区域预览；
+- outputs/hssd_object_candidates：候选对象审阅图；
+- outputs/hssd_object_review 与 hssd_object_preflight.json：approved 对象审阅结果。
+重复运行使用同一路径和 resume；协议不兼容时先归档/清空固定目录，不创建新后缀目录。
+
 核心数据流
 ----------
 1. hssd_preprocess.py 重新计算匹配 0.46 m 机器人尺寸的 NavMesh。
@@ -24,7 +35,7 @@ data/versioned_data/hssd-hab 的符号链接，两条路径是同一份已安装
 5. 构建 SceneSpec -> FloorSpec -> RegionSpec registry。
 6. 对每个 region 检查面积、XZ 尺寸、障碍净空后三机器人成功率、局部 BEV 高度和渲染。
 7. collection_specs() 产出强类型 (scene, floor, region) 目标。
-8. collector.py 在同一 region 中采三台机器人和 2–4 个受控物体。
+8. collector.py 在同一 region 中采三台机器人和 2–4 个类别互不重复的受控物体。
 9. HabitatBackend 是唯一修改 Habitat 状态的层；它渲染三视角和 region-local BEV。
 10. level2.py 从不可变 before state 产生同 region 的 counterfactual after state。
 11. serialization.py 原子发布数据；validation.py 重载 registry/backend 做完整检查。
@@ -40,8 +51,8 @@ CollectorConfig 定义唯一配置面。重要参数包括：
 - states_per_region 和 max_states_per_scene 的确定性平衡；
 - 每类多 asset pool 与 asset SHA-256。
 
-load_config() 会把人工批准 registry 物化成 canonical asset pool，加载 scene split，过滤
-不合格 scene，并进行严格配置校验。generation_fingerprint() 包含协议配置、scene/split/object
+load_config() 会先校验 approved registry 的安全规范化路径、非 decomposed、文件/hash、
+semantic/extent 与全局唯一性，再物化 canonical asset pool、加载 scene split、过滤不合格 scene。generation_fingerprint() 包含协议配置、scene/split/object
 registry hash 和机器人 mesh/material hash；运行参数中的 num_states/resume 不改变协议指纹。
 
 src/mri_dataset/scene_registry.py
@@ -81,6 +92,7 @@ src/mri_dataset/habitat_backend.py
 构造函数必须绑定 eligible scene/floor/region。它：
 - 校验 NavMesh 设置、NavMesh SHA、approved asset 文件 SHA；
 - 将 canonical 相对 ID 对 ObjectTemplateManager handle 做精确唯一解析，零/多匹配报错；
+- approved 小物体将 Habitat 默认 4 cm runtime collision margin 设为 0，避免按扩张 AABB 落地造成普遍浮空；
 - 创建三组 pinhole RGB/depth/OBJECT_ID sensor 和一组 orthographic BEV sensor；
 - 使用完成的落地 robot proxy，视觉 bottom 与 base/floor 一致；
 - 生成 controlled category semantic 和 instance OBJECT_ID；原生背景 semantic=0；
@@ -93,7 +105,8 @@ src/mri_dataset/collector.py
 -----------------------------
 make_world_state() 生成 region-local factual state。所有机器人和物体必须显式通过
 backend.point_in_region()。sample_object_choices() 对排序后的 category 和每类 asset 使用
-state RNG，保证 category+variant 可复现；对象数量在 [2,4] 均匀确定采样。物体还必须
+state RNG：先对 category 无放回采样，再从每类池中选择 variant，保证可复现且同一状态无重复类别；
+对象数量在 [2,4] 均匀确定采样，超过非空类别数会明确失败。物体还必须
 贴地、不碰撞、与机器人/物体分离。
 
 输出层级为 scenes/<scene>/floors/<floor>/regions/<region>/states/<state>。更新索引时
@@ -132,8 +145,9 @@ R1/R2/R3 视角。Level-2 sheet 上下排列 before/after 和 instruction。
 
 src/mri_dataset/validation.py
 -----------------------------
-验证 manifest/index/split、数组 dtype/shape/注册、相机内外参、depth/height ray、机器人
-贴地、instance centroid、region membership、same-region Level-2 和 ID/OOD 参数域。full 模式
+验证 manifest/index/split、approved-object Habitat 预检报告、每个状态对象类别唯一性、数组
+dtype/shape/注册、相机内外参、depth/height ray、机器人/对象贴地、instance centroid、
+region membership、same-region Level-2 和 ID/OOD 参数域。full 模式
 按 scene/floor/region 重用真实 HabitatBackend。
 
 scripts/
@@ -141,6 +155,7 @@ scripts/
 preprocess_hssd.py              单进程/指定 scene 预处理
 preprocess_hssd_parallel.py     全量 scene 并行预处理并合并 registry
 build_hssd_object_registry.py  生成候选+真实视觉表，不自动批准，默认排除 decomposed
+validate_hssd_controlled_objects.py  全量 approved 文件/hash/实例化/落地/OBJECT_ID 预检与审阅图
 generate_dataset.py             Level-1 + Level-2 + full validation 总入口
 collect_level1.py               分阶段 factual 生成
 collect_level2.py               分阶段 intervention 生成
@@ -163,9 +178,10 @@ hssd_preprocess_overrides.json  审核后例外；显式记录一个损坏 PBR �
 ----
 tests 保留所有旧正确性测试，并新增 RegionSpec round-trip、duplicate/floor consistency、
 point assignment、跨 region 近点、三机器人同 region、受控物体同 region、local bounds、
-region mask、preprocess fingerprint、canonical 唯一解析、多 asset 确定性、decomposed 排除、
+region mask、preprocess fingerprint、canonical 唯一解析、类别无放回与多 asset 多样性、
+approved registry 8×4 一致性、decomposed 排除、
 Level-2 region/BEV 一致和 resolution-aware visibility。真实环境测试实际加载 HSSD，渲染
-semantic/instance/depth，并验证机器人贴地。
+semantic/instance/depth，并验证机器人贴地、approved 对象零 runtime margin 与可视底面落地。
 
 已知限制
 --------
